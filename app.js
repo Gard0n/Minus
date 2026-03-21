@@ -1,5 +1,9 @@
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
 const STORAGE_KEY = "minus_darts_v1";
 const THEME_KEY = "minus_theme";
+const SUPABASE_URL = "https://qhpwwjogxawnxbvjsddt.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFocHd3am9neGF3bnhidmpzZGR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTQ1OTIsImV4cCI6MjA4OTY5MDU5Mn0.jK_9ari6-WkA8yc3hXTyLmLUWIxGHlaNyFUIOl6viPU";
 
 const cricketNumbers = [
   { key: "20", label: "20", value: 20 },
@@ -40,11 +44,19 @@ const defaultGroupState = {
   activeMatch: null,
   lastSetup: null,
   lastSummaryId: null,
+  cloudGroupId: null,
 };
 
 let store = loadStore();
 let state = store.groups[store.activeGroupId];
 let currentTheme = loadTheme();
+let supabase = null;
+const cloud = {
+  session: null,
+  groups: [],
+  loading: false,
+  error: null,
+};
 
 const ui = {
   view: "home",
@@ -75,6 +87,7 @@ init();
 function init() {
   bindEvents();
   registerServiceWorker();
+  initSupabase();
   render();
 }
 
@@ -87,7 +100,7 @@ function bindEvents() {
   });
 }
 
-function handleClick(event) {
+async function handleClick(event) {
   const target = event.target.closest("[data-action]");
   if (!target) return;
   const action = target.dataset.action;
@@ -160,6 +173,32 @@ function handleClick(event) {
 
   if (action === "gist-pull") {
     pullFromGist();
+    return;
+  }
+
+  if (action === "cloud-refresh") {
+    await loadCloudGroups();
+    return;
+  }
+
+  if (action === "cloud-push") {
+    await cloudPush();
+    return;
+  }
+
+  if (action === "cloud-pull") {
+    await cloudPull();
+    return;
+  }
+
+  if (action === "supabase-logout") {
+    await cloudSignOut();
+    return;
+  }
+
+  if (action === "cloud-copy-code") {
+    const code = target.dataset.code;
+    copyInviteCode(code);
     return;
   }
 
@@ -361,7 +400,7 @@ function handleClick(event) {
   }
 }
 
-function handleSubmit(event) {
+async function handleSubmit(event) {
   event.preventDefault();
   const form = event.target;
   const formType = form.dataset.form;
@@ -579,6 +618,38 @@ function handleSubmit(event) {
     return;
   }
 
+  if (formType === "supabase-login") {
+    const email = form.email?.value?.trim();
+    if (!email) {
+      showToast("Email requis");
+      return;
+    }
+    await cloudSignIn(email);
+    return;
+  }
+
+  if (formType === "cloud-create") {
+    const name = form.cloudName?.value?.trim();
+    if (!name) {
+      showToast("Nom requis");
+      return;
+    }
+    await cloudCreateGroup(name);
+    form.reset();
+    return;
+  }
+
+  if (formType === "cloud-join") {
+    const code = form.inviteCode?.value?.trim();
+    if (!code) {
+      showToast("Code requis");
+      return;
+    }
+    await cloudJoinGroup(code);
+    form.reset();
+    return;
+  }
+
   if (formType === "group-create") {
     const name = form.groupName?.value?.trim();
     if (!name) {
@@ -721,6 +792,13 @@ function handleChange(event) {
 
   if (target.dataset.change === "group-select") {
     setActiveGroup(target.value);
+    render();
+    return;
+  }
+
+  if (target.dataset.change === "cloud-group-select") {
+    state.cloudGroupId = target.value || null;
+    saveState();
     render();
     return;
   }
@@ -1988,6 +2066,114 @@ function renderInlineProgress(match) {
     .join(" · ");
 }
 
+function renderCloudSection() {
+  const loggedIn = Boolean(cloud.session?.user);
+  const localGroupName = store.groupList.find((group) => group.id === store.activeGroupId)?.name || "Groupe actif";
+  const linkedId = state.cloudGroupId || "";
+  const linkedGroup = linkedId ? cloud.groups.find((group) => group.id === linkedId) : null;
+  const options = cloud.groups
+    .map(
+      (group) =>
+        `<option value="${group.id}" ${group.id === linkedId ? "selected" : ""}>${escapeHtml(group.name || "Sans nom")}</option>`
+    )
+    .join("");
+  const loadingBadge = cloud.loading ? `<span class="badge">Sync...</span>` : "";
+  const errorBlock = cloud.error
+    ? `<p class="small-muted" style="color: var(--danger);">Erreur: ${escapeHtml(cloud.error)}</p>`
+    : "";
+
+  if (!loggedIn) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">Synchronisation Supabase</h3>
+        </div>
+        <p class="subtle">Connecte-toi pour sauvegarder et partager un groupe.</p>
+        <form data-form="supabase-login" class="form-row">
+          <div>
+            <label>Email</label>
+            <input type="email" name="email" placeholder="toi@exemple.com" />
+          </div>
+          <div class="inline-actions" style="align-items:flex-end;">
+            <button class="btn">Recevoir un lien</button>
+          </div>
+        </form>
+        ${errorBlock}
+      </div>
+    `;
+  }
+
+  const inviteCode = linkedGroup?.invite_code || "";
+  const inviteBlock = inviteCode
+    ? `
+      <div class="notice" style="margin-top:12px;">
+        Code d'invitation : <strong>${escapeHtml(inviteCode)}</strong>
+      </div>
+      <div class="inline-actions" style="margin-top:8px;">
+        <button class="btn ghost" data-action="cloud-copy-code" data-code="${escapeHtml(inviteCode)}">Copier le code</button>
+      </div>
+    `
+    : "";
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Synchronisation Supabase</h3>
+      </div>
+      <div class="inline-actions" style="align-items:center;">
+        <span class="badge">Connecté : ${escapeHtml(cloud.session?.user?.email || "compte")}</span>
+        ${loadingBadge}
+        <button class="btn ghost" data-action="cloud-refresh">Rafraîchir</button>
+        <button class="btn ghost" data-action="supabase-logout">Se déconnecter</button>
+      </div>
+      ${errorBlock}
+      <div class="form-row" style="margin-top:12px;">
+        <div>
+          <label>Groupe local actif</label>
+          <div class="notice">${escapeHtml(localGroupName)}</div>
+        </div>
+        <div>
+          <label>Groupe cloud lié</label>
+          <select data-change="cloud-group-select">
+            <option value="">Aucun</option>
+            ${options}
+          </select>
+        </div>
+      </div>
+      <div class="inline-actions" style="margin-top:12px;">
+        <button class="btn" data-action="cloud-push" ${linkedId ? "" : "disabled"}>Envoyer vers le cloud</button>
+        <button class="btn ghost" data-action="cloud-pull" ${linkedId ? "" : "disabled"}>Importer depuis le cloud</button>
+      </div>
+      ${inviteBlock}
+      <div class="grid two" style="margin-top:16px;">
+        <form data-form="cloud-create">
+          <label>Créer un groupe cloud</label>
+          <div class="form-row">
+            <div>
+              <input type="text" name="cloudName" value="${escapeHtml(localGroupName)}" />
+            </div>
+            <div class="inline-actions">
+              <button class="btn ghost">Créer & lier</button>
+            </div>
+          </div>
+        </form>
+        <form data-form="cloud-join">
+          <label>Rejoindre avec un code</label>
+          <div class="form-row">
+            <div>
+              <input type="text" name="inviteCode" placeholder="CODE" />
+            </div>
+            <div class="inline-actions">
+              <button class="btn ghost">Rejoindre</button>
+            </div>
+          </div>
+        </form>
+      </div>
+      <p class="subtle" style="margin-top:8px;">Les données locales sont remplacées lors d'un import.</p>
+    </div>
+  `;
+}
+
 function renderSettings() {
   const view = document.getElementById("view-settings");
   const weights = getRankingWeights();
@@ -2086,6 +2272,7 @@ function renderSettings() {
             <div>
               <strong>${escapeHtml(group.name)}</strong>
               ${group.id === store.activeGroupId ? `<span class="badge">Actif</span>` : ""}
+              ${store.groups[group.id]?.cloudGroupId ? `<span class="badge">Cloud</span>` : ""}
             </div>
             <div class="inline-actions">
               <button class="btn small ghost" data-action="switch-group" data-id="${group.id}">Activer</button>
@@ -2107,6 +2294,8 @@ function renderSettings() {
         </div>
       </form>
     </div>
+
+    ${renderCloudSection()}
 
     <div class="card">
       <div class="card-header">
@@ -3814,6 +4003,293 @@ async function pullFromGist() {
     console.error(err);
     showToast("Erreur Gist");
   }
+}
+
+async function initSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  } catch (err) {
+    console.error("Supabase init error", err);
+    return;
+  }
+
+  try {
+    const { data } = await supabase.auth.getSession();
+    cloud.session = data?.session || null;
+  } catch (err) {
+    console.error("Supabase session error", err);
+    cloud.session = null;
+  }
+
+  if (cloud.session) {
+    await loadCloudGroups();
+  } else {
+    render();
+  }
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    cloud.session = session;
+    cloud.error = null;
+    if (session) {
+      loadCloudGroups();
+    } else {
+      cloud.groups = [];
+      render();
+    }
+  });
+}
+
+async function cloudSignIn(email) {
+  if (!supabase) return;
+  cloud.loading = true;
+  cloud.error = null;
+  render();
+  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: redirectTo,
+    },
+  });
+  cloud.loading = false;
+  if (error) {
+    cloud.error = error.message;
+    showToast("Connexion impossible");
+  } else {
+    showToast("Lien envoyé");
+  }
+  render();
+}
+
+async function cloudSignOut() {
+  if (!supabase) return;
+  await supabase.auth.signOut();
+  cloud.session = null;
+  cloud.groups = [];
+  cloud.error = null;
+  render();
+  showToast("Déconnecté");
+}
+
+async function loadCloudGroups() {
+  if (!supabase || !cloud.session) return;
+  cloud.loading = true;
+  cloud.error = null;
+  render();
+  const { data, error } = await supabase
+    .from("groups")
+    .select("id,name,updated_at,invite_code")
+    .order("updated_at", { ascending: false });
+  if (error) {
+    cloud.error = error.message;
+  } else {
+    cloud.groups = data || [];
+  }
+  cloud.loading = false;
+
+  if (state.cloudGroupId && !cloud.groups.find((group) => group.id === state.cloudGroupId)) {
+    state.cloudGroupId = null;
+    saveState();
+  }
+
+  render();
+}
+
+async function cloudCreateGroup(name) {
+  if (!supabase || !cloud.session) {
+    showToast("Connecte-toi d'abord");
+    return;
+  }
+  cloud.loading = true;
+  cloud.error = null;
+  render();
+
+  const payload = getCloudPayload(state);
+  const ownerId = cloud.session.user.id;
+  let created = null;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 5 && !created; attempt += 1) {
+    const inviteCode = generateInviteCode(6);
+    const { data, error } = await supabase
+      .from("groups")
+      .insert({
+        name,
+        owner_id: ownerId,
+        invite_code: inviteCode,
+        data: payload,
+      })
+      .select("id,name,updated_at,invite_code")
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        lastError = error;
+        continue;
+      }
+      lastError = error;
+      break;
+    }
+    created = data;
+  }
+
+  if (!created) {
+    cloud.loading = false;
+    cloud.error = lastError?.message || "Erreur création";
+    render();
+    showToast("Erreur cloud");
+    return;
+  }
+
+  try {
+    await supabase
+      .from("group_members")
+      .upsert(
+        { group_id: created.id, user_id: ownerId, role: "owner" },
+        { onConflict: "group_id,user_id" }
+      );
+  } catch (err) {
+    console.warn("Membership insert error", err);
+  }
+
+  state.cloudGroupId = created.id;
+  saveState();
+  await loadCloudGroups();
+  showToast("Groupe cloud créé");
+}
+
+async function cloudJoinGroup(code) {
+  if (!supabase || !cloud.session) {
+    showToast("Connecte-toi d'abord");
+    return;
+  }
+  cloud.loading = true;
+  cloud.error = null;
+  render();
+
+  const normalized = code.trim().toUpperCase();
+  const { data, error } = await supabase.rpc("join_group_by_code", { invite_code: normalized });
+  if (error) {
+    cloud.loading = false;
+    cloud.error = error.message;
+    render();
+    showToast("Code invalide");
+    return;
+  }
+
+  const groupId = typeof data === "string" ? data : data?.id || data?.group_id;
+  if (groupId) {
+    state.cloudGroupId = groupId;
+    saveState();
+  }
+
+  await loadCloudGroups();
+  showToast("Groupe rejoint");
+}
+
+async function cloudPush() {
+  if (!supabase || !cloud.session) {
+    showToast("Connecte-toi d'abord");
+    return;
+  }
+  if (!state.cloudGroupId) {
+    showToast("Choisis un groupe cloud");
+    return;
+  }
+
+  cloud.loading = true;
+  cloud.error = null;
+  render();
+
+  const groupName = store.groupList.find((group) => group.id === store.activeGroupId)?.name || "Groupe";
+  const payload = getCloudPayload(state);
+  const { error } = await supabase.from("groups").update({ name: groupName, data: payload }).eq("id", state.cloudGroupId);
+
+  cloud.loading = false;
+  if (error) {
+    cloud.error = error.message;
+    render();
+    showToast("Erreur cloud");
+    return;
+  }
+
+  await loadCloudGroups();
+  showToast("Cloud mis à jour");
+}
+
+async function cloudPull() {
+  if (!supabase || !cloud.session) {
+    showToast("Connecte-toi d'abord");
+    return;
+  }
+  if (!state.cloudGroupId) {
+    showToast("Choisis un groupe cloud");
+    return;
+  }
+  if (!confirm("Importer depuis le cloud va remplacer les données locales. Continuer ?")) {
+    return;
+  }
+
+  cloud.loading = true;
+  cloud.error = null;
+  render();
+
+  const { data, error } = await supabase
+    .from("groups")
+    .select("id,name,data")
+    .eq("id", state.cloudGroupId)
+    .single();
+
+  cloud.loading = false;
+  if (error || !data?.data) {
+    cloud.error = error?.message || "Données introuvables";
+    render();
+    showToast("Erreur cloud");
+    return;
+  }
+
+  const nextState = normalizeGroup(data.data);
+  nextState.cloudGroupId = data.id;
+  state = nextState;
+  const localGroup = store.groupList.find((group) => group.id === store.activeGroupId);
+  if (localGroup && data.name) {
+    localGroup.name = data.name;
+  }
+  saveState();
+  render();
+  showToast("Données importées");
+}
+
+function getCloudPayload(group) {
+  const payload = clone(group);
+  delete payload.cloudGroupId;
+  return payload;
+}
+
+function generateInviteCode(length) {
+  const size = Math.max(4, Number(length) || 6);
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < size; i += 1) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
+function copyInviteCode(code) {
+  if (!code) {
+    showToast("Code indisponible");
+    return;
+  }
+  if (!navigator.clipboard?.writeText) {
+    showToast("Copie non disponible");
+    return;
+  }
+  navigator.clipboard
+    .writeText(code)
+    .then(() => showToast("Code copié"))
+    .catch(() => showToast("Copie impossible"));
 }
 
 function updateFooter() {
