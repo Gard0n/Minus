@@ -38,6 +38,8 @@ const defaultGroupState = {
   matches: [],
   settings: defaultSettings,
   activeMatch: null,
+  lastSetup: null,
+  lastSummaryId: null,
 };
 
 let store = loadStore();
@@ -61,6 +63,7 @@ const ui = {
   dartMultiplier: 1,
   historyRange: "all",
   historySelectedId: null,
+  historyPlayerFilter: [],
   tagFilter: "all",
   historyTagFilter: "all",
   profilePlayerId: null,
@@ -105,6 +108,25 @@ function handleClick(event) {
     return;
   }
 
+  if (action === "quick-start") {
+    const preset = target.dataset.preset;
+    if (preset) startQuickPreset(preset);
+    return;
+  }
+
+  if (action === "dismiss-summary") {
+    state.lastSummaryId = null;
+    saveState();
+    render();
+    return;
+  }
+
+  if (action === "replay-match") {
+    const matchId = target.dataset.id;
+    if (matchId) replayMatch(matchId);
+    return;
+  }
+
   if (action === "apply-template") {
     const template = target.dataset.template;
     if (template) applyTemplate(template);
@@ -138,6 +160,11 @@ function handleClick(event) {
 
   if (action === "gist-pull") {
     pullFromGist();
+    return;
+  }
+
+  if (action === "run-diagnostics") {
+    runDiagnostics();
     return;
   }
 
@@ -218,7 +245,11 @@ function handleClick(event) {
   }
 
   if (action === "cancel-match") {
-    if (confirm("Annuler la partie en cours ?")) {
+    const match = state.activeMatch;
+    const label = match
+      ? `${match.mode.toUpperCase()} · ${formatMatchParticipants(match)}`
+      : "partie en cours";
+    if (confirm(`Annuler ${label} ?`)) {
       state.activeMatch = null;
       saveState();
       ui.dartDraft = [];
@@ -315,7 +346,8 @@ function handleClick(event) {
   }
 
   if (action === "reset-data") {
-    if (confirm("Réinitialiser les données du groupe actif ?")) {
+    const groupName = store.groupList.find((group) => group.id === store.activeGroupId)?.name || "groupe actif";
+    if (confirm(`Réinitialiser les données de "${groupName}" ?`)) {
       state = clone(defaultGroupState);
       saveState();
       ui.quickDraft = null;
@@ -480,6 +512,17 @@ function handleSubmit(event) {
       finalScores: ui.quickDraft.mode === "cricket" ? null : scores,
       finalPoints: ui.quickDraft.mode === "cricket" ? scores : null,
     };
+
+    saveLastSetup({
+      mode: ui.quickDraft.mode,
+      players: ui.quickDraft.players,
+      settings: ui.quickDraft.settings,
+      teamMode: ui.quickDraft.teamMode,
+      teamAssignments: ui.quickDraft.teamAssignments,
+      teamNames: ui.quickDraft.teamNames,
+      scoringMode: "quick",
+      tag: ui.quickDraft.tag || "",
+    });
 
     state.matches.push(matchRecord);
     saveState();
@@ -652,6 +695,18 @@ function handleChange(event) {
     return;
   }
 
+  if (target.name === "historyPlayers") {
+    const selected = new Set(ui.historyPlayerFilter || []);
+    if (target.checked) {
+      selected.add(target.value);
+    } else {
+      selected.delete(target.value);
+    }
+    ui.historyPlayerFilter = Array.from(selected);
+    render();
+    return;
+  }
+
   if (target.name === "matchPlayers") {
     const playerId = target.value;
     const selected = new Set(ui.matchDraft.selectedPlayers || []);
@@ -736,6 +791,7 @@ function renderHome() {
 
   const ranking = getPlayerRanking(ui.rankingRange).slice(0, 5);
   const rangeLabel = getRangeLabel(ui.rankingRange);
+  const quickCard = renderQuickStartCard();
 
   view.innerHTML = `
     <div class="grid two">
@@ -771,6 +827,8 @@ function renderHome() {
         </div>
       </div>
     </div>
+
+    ${quickCard}
 
     <div class="grid two" style="margin-top:18px;">
       <div class="card">
@@ -874,6 +932,32 @@ function renderPlayers() {
   `;
 }
 
+function renderQuickStartCard() {
+  const hasPlayers = state.players.length >= 2;
+  const hasFour = state.players.length >= 4;
+  const lastSetup = getLastSetup();
+  const lastLabel = lastSetup
+    ? `${lastSetup.mode.toUpperCase()} · ${formatPlayersList(lastSetup.players)}`
+    : "Aucune partie récente";
+
+  return `
+    <div class="card" style="margin-top:18px;">
+      <div class="card-header">
+        <h3 class="card-title">Lancer en 1 clic</h3>
+        <span class="subtle">${escapeHtml(lastLabel)}</span>
+      </div>
+      <div class="inline-actions">
+        <button class="btn" data-action="quick-start" data-preset="last" ${lastSetup ? "" : "disabled"}>Rejouer</button>
+        <button class="btn ghost" data-action="quick-start" data-preset="duel-501" ${hasPlayers ? "" : "disabled"}>Duel 501</button>
+        <button class="btn ghost" data-action="quick-start" data-preset="duel-301" ${hasPlayers ? "" : "disabled"}>Duel 301</button>
+        <button class="btn ghost" data-action="quick-start" data-preset="cricket" ${hasPlayers ? "" : "disabled"}>Cricket</button>
+        <button class="btn ghost" data-action="quick-start" data-preset="teams-2v2" ${hasFour ? "" : "disabled"}>Équipes 2v2</button>
+      </div>
+      ${hasPlayers ? `<p class="small-muted" style="margin-top:10px;">Les presets utilisent les derniers joueurs ou les 2/4 premiers de la liste.</p>` : `<p class="subtle" style="margin-top:10px;">Ajoute au moins 2 joueurs pour démarrer.</p>`}
+    </div>
+  `;
+}
+
 function renderMatch() {
   const view = document.getElementById("view-match");
 
@@ -891,7 +975,10 @@ function renderMatch() {
   const defaultLegs = state.settings.legsToWin || 1;
   const defaultSets = state.settings.setsToWin || 1;
 
+  const summaryCard = renderMatchSummaryCard();
+
   view.innerHTML = `
+    ${summaryCard}
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Nouvelle partie</h3>
@@ -1017,6 +1104,59 @@ function renderMatch() {
   `;
 }
 
+function renderMatchSummaryCard() {
+  if (!state.lastSummaryId) return "";
+  const match = state.matches.find((item) => item.id === state.lastSummaryId);
+  if (!match) return "";
+  const winnerLabel = getMatchWinnerLabel(match) || "—";
+  const scoreLabel = match.type === "cricket" ? "Points" : "Score final";
+  return `
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-header">
+        <h3 class="card-title">Résumé de la dernière partie</h3>
+        <span class="badge">Terminée</span>
+      </div>
+      <div class="small-muted">${escapeHtml(formatDate(match.date))}</div>
+      <div><strong>${match.mode.toUpperCase()}</strong> · ${match.scoringMode === "live" ? "Tour par tour" : "Saisie rapide"}</div>
+      <div class="small-muted">Participants : ${escapeHtml(formatMatchParticipants(match))}</div>
+      ${match.tag ? `<div class="small-muted">Événement : ${escapeHtml(match.tag)}</div>` : ""}
+      <div class="small-muted">Vainqueur : ${escapeHtml(winnerLabel)}</div>
+      ${match.progress ? `<div class="small-muted">Sets/Legs : ${escapeHtml(renderInlineProgress(match))}</div>` : ""}
+      <div class="inline-actions" style="margin-top:12px;">
+        <button class="btn" data-action="replay-match" data-id="${match.id}">Rejouer</button>
+        <button class="btn ghost" data-action="nav" data-view="history">Historique</button>
+        <button class="btn ghost" data-action="dismiss-summary">Fermer</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderLastLegNotice(match) {
+  if (!match.lastLeg) return "";
+  const winnerName = match.teamMode
+    ? getMatchTeamName(match, match.lastLeg.winnerSideId)
+    : getPlayerName(match.lastLeg.winnerPlayerId);
+  return `
+    <div class="notice">
+      Dernier leg : ${escapeHtml(winnerName || "—")} (Set ${match.lastLeg.set} · Leg ${match.lastLeg.leg})
+    </div>
+  `;
+}
+
+function renderRulesMenu(match) {
+  const rules = match.type === "x01"
+    ? `Double-in: ${match.settings.doubleIn ? "oui" : "non"} · Double-out: ${match.settings.doubleOut ? "oui" : "non"} · Bust: ${match.settings.bust ? "oui" : "non"}`
+    : "Cricket classique (20 à 15 + bull).";
+  const legs = match.settings.legsToWin || 1;
+  const sets = match.settings.setsToWin || 1;
+  return `
+    <details class="rules-menu">
+      <summary>Règles</summary>
+      <div class="small-muted">${escapeHtml(rules)} · ${sets} set(s) · ${legs} leg(s) gagnants</div>
+    </details>
+  `;
+}
+
 function renderBoard() {
   const view = document.getElementById("view-board");
   const match = state.activeMatch;
@@ -1136,6 +1276,8 @@ function renderActiveMatch() {
   const pauseBadge = isPaused ? `<span class="badge">Pause</span>` : "";
   const disabledAttr = isPaused ? "disabled" : "";
   const progressCard = renderMatchProgress(match);
+  const lastLegNotice = renderLastLegNotice(match);
+  const rulesMenu = renderRulesMenu(match);
 
   if (match.type === "x01") {
     const currentPlayerId = match.players[match.currentTurnIndex];
@@ -1164,6 +1306,7 @@ function renderActiveMatch() {
 
     return `
       ${progressCard}
+      ${lastLegNotice}
       <div class="card">
         <div class="card-header">
           <div>
@@ -1177,6 +1320,8 @@ function renderActiveMatch() {
             <button class="btn danger" data-action="cancel-match">Annuler la partie</button>
           </div>
         </div>
+        <div class="turn-banner">Tour en cours : ${escapeHtml(getPlayerName(currentPlayerId))}</div>
+        ${rulesMenu}
         <table class="table">
           <thead>
             <tr>
@@ -1274,6 +1419,7 @@ function renderActiveMatch() {
 
   return `
     ${progressCard}
+    ${lastLegNotice}
     <div class="card">
       <div class="card-header">
         <div>
@@ -1287,6 +1433,8 @@ function renderActiveMatch() {
           <button class="btn danger" data-action="cancel-match">Annuler la partie</button>
         </div>
       </div>
+      <div class="turn-banner">Tour en cours : ${escapeHtml(getPlayerName(currentPlayerId))}</div>
+      ${rulesMenu}
       <table class="table">
         <thead>
           <tr>
@@ -1431,14 +1579,17 @@ function renderStats() {
   const avgTurnGlobal = totalTurns ? totalPoints / totalTurns : null;
 
   let rankingContent = "";
+  let topMarkup = "";
 
   if (ui.rankingMode === "players") {
     const ranking = getPlayerRanking(ui.rankingRange);
+    topMarkup = renderTop3(ranking, "player");
     rankingContent = ranking.length
       ? renderRankingTable(ranking, { compact: false })
       : `<p class="subtle">Aucune donnée.</p>`;
   } else {
     const teamRanking = getTeamRanking(ui.rankingRange);
+    topMarkup = renderTop3(teamRanking, "team");
     rankingContent = teamRanking.length
       ? renderTeamRanking(teamRanking)
       : `<p class="subtle">Aucune équipe définie.</p>`;
@@ -1498,6 +1649,7 @@ function renderStats() {
         <div class="card-header">
           <h3 class="card-title">Classement</h3>
         </div>
+        ${topMarkup}
         ${rankingContent}
       </div>
     </div>
@@ -1506,7 +1658,8 @@ function renderStats() {
 
 function renderHistory() {
   const view = document.getElementById("view-history");
-  const matches = getMatchesFiltered(ui.historyRange, ui.historyTagFilter)
+  let matches = getMatchesFiltered(ui.historyRange, ui.historyTagFilter);
+  matches = filterMatchesByPlayers(matches, ui.historyPlayerFilter)
     .sort((a, b) => new Date(b.date) - new Date(a.date));
   const selectedMatch = ui.historySelectedId
     ? state.matches.find((match) => match.id === ui.historySelectedId)
@@ -1523,6 +1676,22 @@ function renderHistory() {
           <select data-change="history-tag">
             ${renderTagOptions(ui.historyTagFilter)}
           </select>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <label>Filtrer par joueur</label>
+        <div class="pill-list">
+          ${state.players
+            .map((player) => {
+              const checked = ui.historyPlayerFilter.includes(player.id);
+              return `
+                <label class="player-pill">
+                  <input type="checkbox" name="historyPlayers" value="${player.id}" ${checked ? "checked" : ""} />
+                  <span>${escapeHtml(player.name)}</span>
+                </label>
+              `;
+            })
+            .join("")}
         </div>
       </div>
       ${matches.length ? `
@@ -1652,6 +1821,7 @@ function renderHistoryDetail(match) {
       ${editScores}
       <div class="inline-actions" style="margin-top:12px;">
         <button class="btn">Sauvegarder</button>
+        <button type="button" class="btn ghost" data-action="replay-match" data-id="${match.id}">Rejouer</button>
         <button type="button" class="btn danger" data-action="delete-match" data-id="${match.id}">Supprimer</button>
       </div>
     </form>
@@ -1804,6 +1974,18 @@ function renderProgressTable(match) {
       <tbody>${rows}</tbody>
     </table>
   `;
+}
+
+function renderInlineProgress(match) {
+  ensureMatchProgress(match);
+  const sides = getMatchSideSummaries(match);
+  return sides
+    .map((side) => {
+      const sets = match.progress.sets[side.id] ?? 0;
+      const legs = match.progress.legs[side.id] ?? 0;
+      return `${side.name}: ${sets}-${legs}`;
+    })
+    .join(" · ");
 }
 
 function renderSettings() {
@@ -1978,6 +2160,16 @@ function renderSettings() {
 
     <div class="card">
       <div class="card-header">
+        <h3 class="card-title">Diagnostic rapide</h3>
+      </div>
+      <p class="subtle">Vérifie la cohérence des joueurs, matchs et règles.</p>
+      <div class="inline-actions" style="margin-top:12px;">
+        <button class="btn ghost" data-action="run-diagnostics">Lancer le diagnostic</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
         <h3 class="card-title">Réinitialisation</h3>
       </div>
       <div class="inline-actions">
@@ -2055,6 +2247,17 @@ function startLiveMatch({ mode, players, settings, teamMode, teamAssignments, te
       scoreboard,
     };
   }
+
+  saveLastSetup({
+    mode,
+    players,
+    settings,
+    teamMode: matchTeams.teamMode,
+    teamAssignments: matchTeams.teamAssignments,
+    teamNames: matchTeams.teamNames,
+    scoringMode: "live",
+    tag: tag || "",
+  });
 
   saveState();
   ui.view = "match";
@@ -2149,6 +2352,7 @@ function submitX01TurnFromDarts() {
 
   ui.dartDraft = [];
   ui.dartMultiplier = 1;
+  if (navigator.vibrate) navigator.vibrate(finished ? [30, 20, 30] : 15);
 
   if (finished) {
     handleLegWin(match, playerId);
@@ -2215,8 +2419,10 @@ function submitCricketTurnFromDarts() {
 
   ui.dartDraft = [];
   ui.dartMultiplier = 1;
+  const isWinner = isCricketWinner(match, playerId);
+  if (navigator.vibrate) navigator.vibrate(isWinner ? [30, 20, 30] : 15);
 
-  if (isCricketWinner(match, playerId)) {
+  if (isWinner) {
     let winners = [playerId];
     if (match.teamMode) {
       const teamId = getMatchTeamId(match, playerId);
@@ -2281,6 +2487,7 @@ function finalizeMatch(match, winnerIds) {
   };
 
   state.matches.push(record);
+  state.lastSummaryId = record.id;
   state.activeMatch = null;
   ui.dartDraft = [];
   ui.dartMultiplier = 1;
@@ -2528,6 +2735,21 @@ function renderRankingTable(ranking, { compact }) {
   `;
 }
 
+function renderTop3(rows, type) {
+  if (!rows.length) return "";
+  const top = rows.slice(0, 3);
+  return `
+    <div class="pill-list" style="margin-bottom:12px;">
+      ${top
+        .map((row, index) => {
+          const label = type === "team" ? row.team : row.player.name;
+          return `<div class="pill">#${index + 1} ${escapeHtml(label)}</div>`;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
 function renderTeamRanking(ranking) {
   return `
     <table class="table">
@@ -2675,12 +2897,216 @@ function getMatchesFiltered(range, tagFilter) {
   return matches;
 }
 
+function filterMatchesByPlayers(matches, playerIds) {
+  if (!playerIds || playerIds.length === 0) return matches;
+  return matches.filter((match) => match.players.some((id) => playerIds.includes(id)));
+}
+
 function getAvailableTags() {
   const tags = new Set();
   state.matches.forEach((match) => {
     if (match.tag) tags.add(match.tag);
   });
   return Array.from(tags).sort((a, b) => a.localeCompare(b));
+}
+
+function formatPlayersList(playerIds) {
+  return playerIds.map((id) => getPlayerName(id)).join(" · ");
+}
+
+function getMatchSettings(overrides) {
+  return {
+    doubleIn: overrides?.doubleIn ?? state.settings.doubleIn,
+    doubleOut: overrides?.doubleOut ?? state.settings.doubleOut,
+    bust: overrides?.bust ?? state.settings.bust,
+    legsToWin: Math.max(1, Number(overrides?.legsToWin ?? state.settings.legsToWin ?? 1)),
+    setsToWin: Math.max(1, Number(overrides?.setsToWin ?? state.settings.setsToWin ?? 1)),
+  };
+}
+
+function sanitizePlayerIds(playerIds) {
+  return (playerIds || []).filter((id) => getPlayer(id));
+}
+
+function getLastSetup() {
+  const setup = state.lastSetup;
+  if (!setup) return null;
+  const players = sanitizePlayerIds(setup.players);
+  if (players.length < 2) return null;
+  const mode = isValidMode(setup.mode) ? setup.mode : state.settings.defaultMode;
+  const teamMode = !!setup.teamMode;
+  const teamAssignments = buildTeamAssignments(players, setup.teamAssignments, teamMode);
+  const teamNames = normalizeTeamNames(setup.teamNames);
+  const settings = getMatchSettings(setup.settings || {});
+  const scoringMode = setup.scoringMode || state.settings.scoringMode;
+  return {
+    mode,
+    players,
+    teamMode,
+    teamAssignments,
+    teamNames,
+    settings,
+    scoringMode,
+    tag: setup.tag || "",
+  };
+}
+
+function saveLastSetup(setup) {
+  if (!setup) return;
+  const players = sanitizePlayerIds(setup.players);
+  if (players.length < 2) return;
+  state.lastSetup = {
+    mode: setup.mode,
+    players,
+    teamMode: !!setup.teamMode,
+    teamAssignments: setup.teamAssignments || {},
+    teamNames: setup.teamNames || { A: "Équipe A", B: "Équipe B" },
+    settings: setup.settings || {},
+    scoringMode: setup.scoringMode || state.settings.scoringMode,
+    tag: setup.tag || "",
+  };
+}
+
+function isValidMode(mode) {
+  return ["501", "301", "cricket"].includes(mode);
+}
+
+function normalizeTeamNames(teamNames) {
+  if (!teamNames) return { A: "Équipe A", B: "Équipe B" };
+  if (Array.isArray(teamNames)) {
+    return { A: teamNames[0] || "Équipe A", B: teamNames[1] || "Équipe B" };
+  }
+  return {
+    A: teamNames.A || "Équipe A",
+    B: teamNames.B || "Équipe B",
+    ...teamNames,
+  };
+}
+
+function buildTeamAssignments(players, assignments, teamMode) {
+  if (!teamMode) return assignments || {};
+  const result = {};
+  players.forEach((playerId, index) => {
+    result[playerId] = assignments?.[playerId] || (index % 2 === 0 ? "A" : "B");
+  });
+  return result;
+}
+
+function startMatchFromSetup(setup) {
+  const players = sanitizePlayerIds(setup.players);
+  if (players.length < 2) {
+    showToast("Ajoute au moins 2 joueurs");
+    return;
+  }
+  const mode = isValidMode(setup.mode) ? setup.mode : state.settings.defaultMode;
+  const teamMode = !!setup.teamMode;
+  const teamAssignments = buildTeamAssignments(players, setup.teamAssignments, teamMode);
+  const teamNames = normalizeTeamNames(setup.teamNames);
+  const settings = getMatchSettings(setup.settings || {});
+  const scoringMode = setup.scoringMode || state.settings.scoringMode;
+  const payload = {
+    mode,
+    players,
+    settings,
+    teamMode,
+    teamAssignments,
+    teamNames,
+    tag: setup.tag || "",
+  };
+
+  saveLastSetup({
+    ...payload,
+    scoringMode,
+  });
+
+  if (scoringMode === "live") {
+    startLiveMatch(payload);
+  } else {
+    ui.quickDraft = {
+      ...payload,
+      scoringMode: "quick",
+    };
+    ui.view = "match";
+    render();
+  }
+}
+
+function startQuickPreset(preset) {
+  const players = state.players.map((player) => player.id);
+  const lastSetup = getLastSetup();
+  const base = lastSetup?.players?.length ? lastSetup.players : players;
+  const pick = (count) => base.slice(0, count);
+
+  if (preset === "last") {
+    if (!lastSetup) {
+      showToast("Aucune partie récente");
+      return;
+    }
+    startMatchFromSetup(lastSetup);
+    return;
+  }
+
+  if (preset === "duel-501") {
+    startMatchFromSetup({
+      mode: "501",
+      players: pick(2),
+      teamMode: false,
+      settings: {},
+    });
+    return;
+  }
+
+  if (preset === "duel-301") {
+    startMatchFromSetup({
+      mode: "301",
+      players: pick(2),
+      teamMode: false,
+      settings: {},
+    });
+    return;
+  }
+
+  if (preset === "cricket") {
+    startMatchFromSetup({
+      mode: "cricket",
+      players: pick(2),
+      teamMode: false,
+      settings: {},
+    });
+    return;
+  }
+
+  if (preset === "teams-2v2") {
+    const selected = pick(4);
+    const assignments = {};
+    selected.forEach((playerId, index) => {
+      assignments[playerId] = index % 2 === 0 ? "A" : "B";
+    });
+    startMatchFromSetup({
+      mode: "501",
+      players: selected,
+      teamMode: true,
+      teamAssignments: assignments,
+      teamNames: { A: "Équipe A", B: "Équipe B" },
+      settings: {},
+    });
+    return;
+  }
+}
+
+function replayMatch(matchId) {
+  const match = state.matches.find((item) => item.id === matchId);
+  if (!match) return;
+  startMatchFromSetup({
+    mode: match.mode,
+    players: match.players,
+    teamMode: match.teamMode,
+    teamAssignments: match.teamAssignments,
+    teamNames: match.teamNames,
+    settings: match.settings,
+    scoringMode: match.scoringMode,
+    tag: match.tag || "",
+  });
 }
 
 function initMatchProgress({ players, teamMode, teamAssignments, teamNames }) {
@@ -2733,6 +3159,14 @@ function handleLegWin(match, winnerPlayerId) {
   const winnerSideId = match.teamMode
     ? getMatchTeamId(match, winnerPlayerId) || winnerPlayerId
     : winnerPlayerId;
+
+  match.lastLeg = {
+    winnerPlayerId,
+    winnerSideId,
+    set: match.progress.currentSet,
+    leg: match.progress.currentLeg,
+    ts: new Date().toISOString(),
+  };
 
   if (!match.progress.legs[winnerSideId]) match.progress.legs[winnerSideId] = 0;
   if (!match.progress.sets[winnerSideId]) match.progress.sets[winnerSideId] = 0;
@@ -2995,6 +3429,7 @@ function addDart(base) {
   const score = base * multiplier;
   ui.dartDraft.push({ base, multiplier, score });
   ui.dartMultiplier = 1;
+  if (navigator.vibrate) navigator.vibrate(10);
   render();
 }
 
@@ -3407,6 +3842,50 @@ function registerServiceWorker() {
   });
 }
 
+function runDiagnostics() {
+  const issues = [];
+
+  const nameMap = new Map();
+  state.players.forEach((player) => {
+    const name = (player.name || "").toLowerCase();
+    if (!name) {
+      issues.push("Joueur sans nom");
+    } else if (nameMap.has(name)) {
+      issues.push(`Doublon de joueur: ${player.name}`);
+    } else {
+      nameMap.set(name, true);
+    }
+  });
+
+  const validateMatch = (match, label) => {
+    if (!isValidMode(match.mode)) issues.push(`${label}: mode invalide`);
+    if (!match.players || match.players.length < 2) issues.push(`${label}: moins de 2 joueurs`);
+    const missingPlayers = (match.players || []).filter((id) => !getPlayer(id));
+    if (missingPlayers.length) issues.push(`${label}: joueur(s) manquant(s)`);
+    const settings = match.settings || {};
+    if ((settings.legsToWin || 1) < 1 || (settings.setsToWin || 1) < 1) {
+      issues.push(`${label}: legs/sets invalides`);
+    }
+    if (match.teamMode) {
+      const teams = new Set(Object.values(match.teamAssignments || {}));
+      if (teams.size < 2) issues.push(`${label}: équipes insuffisantes`);
+    }
+  };
+
+  state.matches.forEach((match, index) => {
+    validateMatch(match, `Match ${index + 1}`);
+  });
+
+  if (state.activeMatch) validateMatch(state.activeMatch, "Match en cours");
+
+  if (issues.length) {
+    console.warn("Diagnostics Minus", issues);
+    showToast(`${issues.length} problème(s) détecté(s) (console)`);
+  } else {
+    showToast("Diagnostic OK");
+  }
+}
+
 function loadTheme() {
   const stored = localStorage.getItem(THEME_KEY);
   if (stored === "dark" || stored === "light") return stored;
@@ -3605,6 +4084,8 @@ function setActiveGroup(groupId) {
   ui.editingPlayerId = null;
   ui.profilePlayerId = null;
   ui.historySelectedId = null;
+  ui.historyPlayerFilter = [];
+  if (ui.matchDraft) ui.matchDraft.selectedPlayers = [];
   ui.dartDraft = [];
   ui.dartMultiplier = 1;
   saveState();

@@ -396,6 +396,29 @@ label {
   flex-wrap: wrap;
 }
 
+.turn-banner {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.rules-menu {
+  margin-bottom: 12px;
+}
+
+.rules-menu summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rules-menu .small-muted {
+  margin-top: 6px;
+}
+
 .cricket-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -484,11 +507,18 @@ label {
 
 .board-view #app {
   max-width: 1400px;
+  padding-top: 24px;
 }
 
 .board {
   display: grid;
   gap: 18px;
+}
+
+.board-view .app-header,
+.board-view .app-nav,
+.board-view .app-footer {
+  display: none;
 }
 
 .board-header {
@@ -501,7 +531,7 @@ label {
 
 .board-title {
   margin: 0;
-  font-size: 26px;
+  font-size: 32px;
   letter-spacing: -0.02em;
 }
 
@@ -525,7 +555,7 @@ label {
 }
 
 .score-value {
-  font-size: 36px;
+  font-size: 44px;
   font-weight: 700;
 }
 
@@ -563,5 +593,14 @@ label {
 
   .table {
     font-size: 13px;
+  }
+
+  .dart-btn {
+    padding: 14px 0;
+    font-size: 16px;
+  }
+
+  .score-value {
+    font-size: 36px;
   }
 }
