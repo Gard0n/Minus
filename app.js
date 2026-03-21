@@ -55,6 +55,7 @@ const ui = {
     type: "solo",
     teamNames: ["Équipe A", "Équipe B"],
     teamAssignments: {},
+    selectedPlayers: [],
   },
   dartDraft: [],
   dartMultiplier: 1,
@@ -70,6 +71,7 @@ init();
 
 function init() {
   bindEvents();
+  registerServiceWorker();
   render();
 }
 
@@ -77,6 +79,9 @@ function bindEvents() {
   document.addEventListener("click", handleClick);
   document.addEventListener("submit", handleSubmit);
   document.addEventListener("change", handleChange);
+  document.addEventListener("fullscreenchange", () => {
+    if (ui.view === "board") render();
+  });
 }
 
 function handleClick(event) {
@@ -97,6 +102,17 @@ function handleClick(event) {
 
   if (action === "toggle-theme") {
     toggleTheme();
+    return;
+  }
+
+  if (action === "apply-template") {
+    const template = target.dataset.template;
+    if (template) applyTemplate(template);
+    return;
+  }
+
+  if (action === "toggle-fullscreen") {
+    toggleFullscreen();
     return;
   }
 
@@ -636,6 +652,18 @@ function handleChange(event) {
     return;
   }
 
+  if (target.name === "matchPlayers") {
+    const playerId = target.value;
+    const selected = new Set(ui.matchDraft.selectedPlayers || []);
+    if (target.checked) {
+      selected.add(playerId);
+    } else {
+      selected.delete(playerId);
+    }
+    ui.matchDraft.selectedPlayers = Array.from(selected);
+    return;
+  }
+
   if (target.dataset.change === "group-select") {
     setActiveGroup(target.value);
     render();
@@ -659,11 +687,13 @@ function render() {
   renderHome();
   renderPlayers();
   renderMatch();
+  renderBoard();
   renderStats();
   renderHistory();
   renderProfile();
   renderSettings();
   showView(ui.view);
+  document.body.classList.toggle("board-view", ui.view === "board");
   updateFooter();
 }
 
@@ -857,6 +887,7 @@ function renderMatch() {
   const teamMode = ui.matchDraft.type === "teams";
   const teamNameA = ui.matchDraft.teamNames[0] || "Équipe A";
   const teamNameB = ui.matchDraft.teamNames[1] || "Équipe B";
+  const selectedPlayers = ui.matchDraft.selectedPlayers || [];
   const defaultLegs = state.settings.legsToWin || 1;
   const defaultSets = state.settings.setsToWin || 1;
 
@@ -908,15 +939,25 @@ function renderMatch() {
           </div>
         ` : ""}
         <div style="margin-top:12px;">
+          <label>Templates</label>
+          <div class="inline-actions">
+            <button type="button" class="btn small ghost" data-action="apply-template" data-template="duel">Duel 2 joueurs</button>
+            <button type="button" class="btn small ghost" data-action="apply-template" data-template="four">4 joueurs</button>
+            <button type="button" class="btn small ghost" data-action="apply-template" data-template="teams2v2">Équipes 2v2</button>
+            <button type="button" class="btn small ghost" data-action="apply-template" data-template="all">Tout le monde</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
           <label>Joueurs</label>
           <div class="pill-list">
             ${state.players
               .map((player) => {
                 const assigned = ui.matchDraft.teamAssignments[player.id] || "A";
+                const isSelected = selectedPlayers.includes(player.id);
                 return `
                   <div class="player-row">
                     <label class="player-pill">
-                      <input type="checkbox" name="matchPlayers" value="${player.id}" />
+                      <input type="checkbox" name="matchPlayers" value="${player.id}" ${isSelected ? "checked" : ""} />
                       <span>${escapeHtml(player.name)}</span>
                       ${player.team ? `<span class="small-muted">${escapeHtml(player.team)}</span>` : ""}
                     </label>
@@ -976,6 +1017,117 @@ function renderMatch() {
   `;
 }
 
+function renderBoard() {
+  const view = document.getElementById("view-board");
+  const match = state.activeMatch;
+
+  if (!match) {
+    view.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">Tableau plein écran</h3>
+        </div>
+        <p class="subtle">Aucune partie en cours. Lance une partie pour afficher le tableau.</p>
+        <div class="inline-actions">
+          <button class="btn" data-action="nav" data-view="match">Lancer une partie</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const currentPlayerId = match.players[match.currentTurnIndex];
+  const currentName = getPlayerName(currentPlayerId);
+  const isPaused = match.status === "paused";
+  const fullscreenLabel = isFullscreen() ? "Quitter plein écran" : "Plein écran";
+  const lastTurns = match.turns.slice(-6).reverse();
+
+  const scoreCards = match.players
+    .map((playerId, index) => {
+      const player = getPlayer(playerId);
+      const teamName = match.teamMode ? getMatchTeamName(match, getMatchTeamId(match, playerId)) : null;
+      const isActive = index === match.currentTurnIndex;
+      if (match.type === "x01") {
+        const data = match.scoreboard[playerId];
+        return `
+          <div class="score-card ${isActive ? "active" : ""}">
+            <div><strong>${escapeHtml(player?.name || "Joueur supprimé")}</strong></div>
+            ${teamName ? `<div class="score-meta">${escapeHtml(teamName)}</div>` : ""}
+            <div class="score-value">${data.score}</div>
+            <div class="score-meta">${match.settings.doubleIn && !data.started ? "Double-in requis" : "En jeu"}</div>
+          </div>
+        `;
+      }
+
+      const data = match.cricket.scores[playerId];
+      return `
+        <div class="score-card ${isActive ? "active" : ""}">
+          <div><strong>${escapeHtml(player?.name || "Joueur supprimé")}</strong></div>
+          ${teamName ? `<div class="score-meta">${escapeHtml(teamName)}</div>` : ""}
+          <div class="score-value">${data.points}</div>
+          <div class="mark-grid">
+            ${cricketNumbers
+              .map((num) => `<div class="mark-pill"><span>${num.label}</span><strong>${data.marks[num.key]}/3</strong></div>`)
+              .join("")}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  const lastTurnsMarkup = lastTurns.length
+    ? `
+      <div class="pill-list">
+        ${lastTurns
+          .map((turn) => {
+            if (match.type === "x01") {
+              const label = `${getPlayerName(turn.playerId)} · ${turn.appliedScore} pts${turn.finished ? " (finish)" : ""}`;
+              return `<div class="pill">${escapeHtml(label)}</div>`;
+            }
+            const label = `${getPlayerName(turn.playerId)} · +${turn.pointsGained} pts`;
+            return `<div class="pill">${escapeHtml(label)}</div>`;
+          })
+          .join("")}
+      </div>
+    `
+    : `<p class="subtle">Aucun tour enregistré.</p>`;
+
+  view.innerHTML = `
+    <div class="board">
+      <div class="board-header">
+        <div>
+          <h2 class="board-title">Tableau live</h2>
+          <div class="subtle">${match.mode.toUpperCase()} · ${escapeHtml(formatMatchParticipants(match))}</div>
+        </div>
+        <div class="inline-actions">
+          <button class="btn ghost" data-action="toggle-fullscreen">${fullscreenLabel}</button>
+          <button class="btn ghost" data-action="nav" data-view="match">Retour</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">Tour de ${escapeHtml(currentName)}</h3>
+            ${isPaused ? `<span class="badge">Pause</span>` : ""}
+          </div>
+          ${match.type === "x01" ? `<div class="subtle">Reste : ${match.scoreboard[currentPlayerId].score}</div>` : ""}
+        </div>
+        ${match.progress ? renderProgressTable(match) : ""}
+      </div>
+
+      <div class="score-grid">${scoreCards}</div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">Derniers tours</h3>
+        </div>
+        ${lastTurnsMarkup}
+      </div>
+    </div>
+  `;
+}
+
 function renderActiveMatch() {
   const match = state.activeMatch;
   const playerNames = formatMatchParticipants(match);
@@ -1019,6 +1171,7 @@ function renderActiveMatch() {
             <div class="subtle">${playerNames}</div>
           </div>
           <div class="inline-actions">
+            <button class="btn ghost" data-action="nav" data-view="board">Tableau</button>
             <button class="btn ghost" data-action="toggle-pause">${pauseLabel}</button>
             <button class="btn ghost" data-action="undo-turn">Annuler le dernier tour</button>
             <button class="btn danger" data-action="cancel-match">Annuler la partie</button>
@@ -1128,6 +1281,7 @@ function renderActiveMatch() {
           <div class="subtle">${playerNames}</div>
         </div>
         <div class="inline-actions">
+          <button class="btn ghost" data-action="nav" data-view="board">Tableau</button>
           <button class="btn ghost" data-action="toggle-pause">${pauseLabel}</button>
           <button class="btn ghost" data-action="undo-turn">Annuler le dernier tour</button>
           <button class="btn danger" data-action="cancel-match">Annuler la partie</button>
@@ -2655,16 +2809,56 @@ function ensureMatchDraft() {
       type: "solo",
       teamNames: ["Équipe A", "Équipe B"],
       teamAssignments: {},
+      selectedPlayers: [],
     };
   }
   if (!Array.isArray(ui.matchDraft.teamNames) || ui.matchDraft.teamNames.length < 2) {
     ui.matchDraft.teamNames = ["Équipe A", "Équipe B"];
+  }
+  if (!Array.isArray(ui.matchDraft.selectedPlayers)) {
+    ui.matchDraft.selectedPlayers = [];
   }
   state.players.forEach((player, index) => {
     if (!ui.matchDraft.teamAssignments[player.id]) {
       ui.matchDraft.teamAssignments[player.id] = index % 2 === 0 ? "A" : "B";
     }
   });
+}
+
+function applyTemplate(template) {
+  ensureMatchDraft();
+  const players = state.players.map((player) => player.id);
+  const needed = {
+    duel: 2,
+    four: 4,
+    teams2v2: 4,
+  };
+  const required = needed[template] || 0;
+  if (required && players.length < required) {
+    showToast(`Ajoute au moins ${required} joueurs`);
+    return;
+  }
+
+  let selected = [];
+  if (template === "duel") {
+    ui.matchDraft.type = "solo";
+    selected = players.slice(0, 2);
+  } else if (template === "four") {
+    ui.matchDraft.type = "solo";
+    selected = players.slice(0, 4);
+  } else if (template === "teams2v2") {
+    ui.matchDraft.type = "teams";
+    selected = players.slice(0, 4);
+    selected.forEach((playerId, index) => {
+      ui.matchDraft.teamAssignments[playerId] = index % 2 === 0 ? "A" : "B";
+    });
+  } else if (template === "all") {
+    selected = [...players];
+  }
+
+  ui.matchDraft.selectedPlayers = selected;
+  render();
+  showToast("Template appliqué");
 }
 
 function buildTeamTurnOrder(players, assignments, randomize) {
@@ -3192,6 +3386,25 @@ function updateFooter() {
   if (!meta) return;
   const groupName = store.groupList.find((group) => group.id === store.activeGroupId)?.name || "Groupe";
   meta.textContent = `${groupName} · ${state.players.length} joueurs · ${state.matches.length} parties`;
+}
+
+function isFullscreen() {
+  return Boolean(document.fullscreenElement);
+}
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.().catch(() => {});
+  } else {
+    document.exitFullscreen?.().catch(() => {});
+  }
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
 }
 
 function loadTheme() {

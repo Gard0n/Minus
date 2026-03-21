@@ -482,6 +482,75 @@ label {
   font-size: 12px;
 }
 
+.board-view #app {
+  max-width: 1400px;
+}
+
+.board {
+  display: grid;
+  gap: 18px;
+}
+
+.board-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.board-title {
+  margin: 0;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+
+.score-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.score-card {
+  border-radius: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.score-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 18px 40px var(--accent-shadow);
+}
+
+.score-value {
+  font-size: 36px;
+  font-weight: 700;
+}
+
+.score-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.mark-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mark-pill {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  background: var(--card);
+}
+
 @media (max-width: 720px) {
   .app-header {
     flex-direction: column;

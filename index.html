@@ -4,12 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Minus — Classement Fléchettes</title>
+    <meta name="theme-color" content="#1d8f7a" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#151821" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="assets/icon-192.svg" />
+    <link rel="apple-touch-icon" href="assets/icon-192.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -34,6 +39,7 @@
         <button class="nav-btn" data-action="nav" data-view="home">Accueil</button>
         <button class="nav-btn" data-action="nav" data-view="players">Joueurs</button>
         <button class="nav-btn" data-action="nav" data-view="match">Partie</button>
+        <button class="nav-btn" data-action="nav" data-view="board">Tableau</button>
         <button class="nav-btn" data-action="nav" data-view="stats">Stats</button>
         <button class="nav-btn" data-action="nav" data-view="history">Historique</button>
         <button class="nav-btn" data-action="nav" data-view="settings">Réglages</button>
@@ -43,6 +49,7 @@
         <section id="view-home" class="view"></section>
         <section id="view-players" class="view"></section>
         <section id="view-match" class="view"></section>
+        <section id="view-board" class="view"></section>
         <section id="view-stats" class="view"></section>
         <section id="view-history" class="view"></section>
         <section id="view-profile" class="view"></section>
