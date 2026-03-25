@@ -47,6 +47,76 @@ const defaultGroupState = {
   cloudGroupId: null,
 };
 
+// Checkout suggestions (double-out)
+const CHECKOUT_TABLE = {
+  170:"T20 T20 Bull", 167:"T20 T19 Bull", 164:"T20 T18 Bull",
+  161:"T20 T17 Bull", 160:"T20 T20 D20", 158:"T20 T20 D19",
+  157:"T20 T19 D20",  156:"T20 T20 D18", 155:"T20 T19 D19",
+  154:"T20 T18 D20",  153:"T20 T19 D18", 152:"T20 T20 D16",
+  151:"T20 T17 D20",  150:"T20 T18 D18", 149:"T20 T19 D16",
+  148:"T20 T20 D14",  147:"T20 T17 D18", 146:"T20 T18 D16",
+  145:"T20 T15 D20",  144:"T20 T20 D12", 143:"T20 T17 D16",
+  142:"T20 T14 D20",  141:"T20 T19 D12", 140:"T20 T20 D10",
+  139:"T20 T13 D20",  138:"T20 T18 D12", 137:"T20 T15 D16",
+  136:"T20 T20 D8",   135:"T20 T15 D15", 134:"T20 T14 D16",
+  133:"T20 T19 D8",   132:"T20 T16 D12", 131:"T20 T13 D16",
+  130:"T20 T20 D5",   129:"T19 T16 D12", 128:"T20 T16 D10",
+  127:"T20 T17 D8",   126:"T19 T19 D6",  125:"T20 T15 D10",
+  124:"T20 T16 D8",   123:"T19 T16 D9",  122:"T18 T18 D7",
+  121:"T20 T11 D14",  120:"T20 20 D20",  119:"T19 12 D20",
+  118:"T20 18 D20",   117:"T20 17 D20",  116:"T20 16 D20",
+  115:"T20 15 D20",   114:"T20 14 D20",  113:"T20 13 D20",
+  112:"T20 12 D20",   111:"T20 11 D20",  110:"T20 D25",
+  109:"T19 12 D20",   108:"T20 16 D16",  107:"T19 10 D20",
+  106:"T20 14 D16",   105:"T20 13 D16",  104:"T18 18 D16",
+  103:"T19 10 D18",   102:"T20 10 D16",  101:"T17 18 D16",
+  100:"T20 D20",       99:"T19 10 D16",   98:"T20 D19",
+   97:"T19 D20",       96:"T20 D18",      95:"T19 D19",
+   94:"T18 D20",       93:"T19 D18",      92:"T20 D16",
+   91:"T17 D20",       90:"T18 D18",      89:"T19 D16",
+   88:"T20 D14",       87:"T17 D18",      86:"T18 D16",
+   85:"T15 D20",       84:"T20 D12",      83:"T17 D16",
+   82:"T14 D20",       81:"T19 D12",      80:"T20 D10",
+   79:"T13 D20",       78:"T18 D12",      77:"T15 D16",
+   76:"T20 D8",        75:"T15 D15",      74:"T14 D16",
+   73:"T19 D8",        72:"T16 D12",      71:"T13 D16",
+   70:"T10 D20",       69:"T19 D6",       68:"T20 D4",
+   67:"T9 D20",        66:"T10 D18",      65:"T11 D16",
+   64:"T16 D8",        63:"T13 D12",      62:"T10 D16",
+   61:"T15 D8",        60:"20 D20",       59:"19 D20",
+   58:"18 D20",        57:"17 D20",       56:"16 D20",
+   55:"15 D20",        54:"14 D20",       53:"13 D20",
+   52:"12 D20",        51:"11 D20",       50:"D25",
+   49:"9 D20",         48:"16 D16",       47:"15 D16",
+   46:"6 D20",         45:"13 D16",       44:"4 D20",
+   43:"3 D20",         42:"10 D16",       41:"9 D16",
+   40:"D20",           38:"D19",          36:"D18",
+   34:"D17",           32:"D16",          30:"D15",
+   28:"D14",           26:"D13",          24:"D12",
+   22:"D11",           20:"D10",          18:"D9",
+   16:"D8",            14:"D7",           12:"D6",
+   10:"D5",             8:"D4",            6:"D3",
+    4:"D2",             2:"D1",
+};
+
+function getCheckoutSuggestion(score, doubleOut) {
+  if (score < 2 || score > 170) return null;
+  if (!doubleOut) {
+    if (score <= 20) return String(score);
+    if (score === 25 || score === 50) return "Bull";
+    if (score <= 40 && score % 2 === 0) return `D${score / 2}`;
+    if (score <= 60 && score % 3 === 0) return `T${score / 3}`;
+    return null;
+  }
+  return CHECKOUT_TABLE[score] || null;
+}
+
+function renderCheckoutBanner(score, doubleOut) {
+  const suggestion = getCheckoutSuggestion(score, doubleOut !== false);
+  if (!suggestion) return "";
+  return `<div class="checkout-banner">💡 Checkout : <strong>${escapeHtml(suggestion)}</strong></div>`;
+}
+
 let store = loadStore();
 let state = store.groups[store.activeGroupId];
 let currentTheme = loadTheme();
@@ -1422,6 +1492,7 @@ function renderActiveMatch() {
           ${pauseBadge}
           ${match.settings.doubleIn && !currentState.started ? `<span class="badge">Double-in requis</span>` : ""}
         </div>
+        ${renderCheckoutBanner(currentState.score, match.settings.doubleOut)}
         <div class="dartpad">
           <div class="inline-actions">
             <button class="btn small ghost ${ui.dartMultiplier === 2 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="2" ${disabledAttr}>Double</button>
@@ -1906,6 +1977,61 @@ function renderHistoryDetail(match) {
   `;
 }
 
+function renderPlayerEvolutionChart(playerId, matches) {
+  const sorted = [...matches].sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-15);
+  if (sorted.length === 0) return "";
+
+  // Win/loss dots
+  const dots = sorted.map((match) => {
+    const won = (match.winnerIds || []).includes(playerId);
+    const cls = won ? "evo-dot win" : "evo-dot loss";
+    const label = won ? "V" : "D";
+    return `<span class="${cls}" title="${formatDate(match.date)}">${label}</span>`;
+  }).join("");
+
+  // Avg turn per match (X01 live only)
+  const x01Matches = sorted.filter(
+    (m) => m.type === "x01" && m.scoringMode === "live" && Array.isArray(m.turns)
+  );
+
+  let barChart = "";
+  if (x01Matches.length >= 2) {
+    const avgs = x01Matches.map((match) => {
+      const playerTurns = match.turns.filter((t) => t.playerId === playerId);
+      if (!playerTurns.length) return null;
+      const total = playerTurns.reduce((s, t) => s + (Number.isFinite(t.appliedScore) ? t.appliedScore : 0), 0);
+      return { avg: total / playerTurns.length, won: (match.winnerIds || []).includes(playerId), date: match.date };
+    }).filter(Boolean);
+
+    if (avgs.length >= 2) {
+      const maxAvg = Math.max(...avgs.map((a) => a.avg), 1);
+      const barH = 48;
+      const barW = Math.max(12, Math.floor(220 / avgs.length) - 3);
+      const bars = avgs.map((a, i) => {
+        const h = Math.round((a.avg / maxAvg) * barH);
+        const y = barH - h;
+        const fill = a.won ? "var(--color-win, #4caf50)" : "var(--color-loss, #e53935)";
+        return `<rect x="${i * (barW + 3)}" y="${y}" width="${barW}" height="${h}" fill="${fill}" rx="2" title="${formatDate(a.date)} · ${formatNumber(a.avg, 1)} pts/tour"/>`;
+      }).join("");
+      const totalW = avgs.length * (barW + 3) - 3;
+      barChart = `
+        <div class="evo-chart-label">Moy./tour (X01 live)</div>
+        <svg class="evo-bar-chart" width="${totalW}" height="${barH}" viewBox="0 0 ${totalW} ${barH}">
+          ${bars}
+        </svg>`;
+    }
+  }
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Évolution (${sorted.length} dernières parties)</h3>
+      </div>
+      <div class="evo-dots">${dots}</div>
+      ${barChart}
+    </div>`;
+}
+
 function renderProfile() {
   const view = document.getElementById("view-profile");
   const player = ui.profilePlayerId ? getPlayer(ui.profilePlayerId) : null;
@@ -1965,6 +2091,8 @@ function renderProfile() {
         </div>
       </div>
     </div>
+
+    ${renderPlayerEvolutionChart(player.id, matches)}
 
     <div class="card">
       <div class="card-header">
@@ -3619,6 +3747,31 @@ function addDart(base) {
   ui.dartDraft.push({ base, multiplier, score });
   ui.dartMultiplier = 1;
   if (navigator.vibrate) navigator.vibrate(10);
+
+  // Auto-submit: checkout detected (X01 only)
+  if (match.type === "x01") {
+    const playerId = match.players[match.currentTurnIndex];
+    const playerState = match.scoreboard[playerId];
+    const dartTotal = ui.dartDraft.reduce((s, d) => s + d.score, 0);
+    const remaining = playerState.score - dartTotal;
+    const lastDart = ui.dartDraft[ui.dartDraft.length - 1];
+    const isValidFinish = !match.settings.doubleOut || lastDart.multiplier === 2;
+    if (remaining === 0 && isValidFinish) {
+      submitX01TurnFromDarts();
+      return;
+    }
+  }
+
+  // Auto-submit after 3rd dart
+  if (ui.dartDraft.length === 3) {
+    if (match.type === "x01") {
+      submitX01TurnFromDarts();
+    } else if (match.type === "cricket") {
+      submitCricketTurnFromDarts();
+    }
+    return;
+  }
+
   render();
 }
 
