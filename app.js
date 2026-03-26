@@ -197,6 +197,13 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "dismiss-overlay") {
+    const overlay = document.getElementById("flash-overlay");
+    if (overlay) overlay.classList.add("hidden");
+    clearTimeout(showFlashOverlay._timer);
+    return;
+  }
+
   if (action === "dismiss-summary") {
     state.lastSummaryId = null;
     saveState();
@@ -1448,9 +1455,13 @@ function renderActiveMatch() {
 
     const lastTurns = match.turns.slice(-5).reverse();
     const dartTotal = ui.dartDraft.reduce((sum, dart) => sum + dart.score, 0);
-    const dartLabels = ui.dartDraft.length
-      ? ui.dartDraft.map((dart) => `<div class="pill">${escapeHtml(formatDart(dart))}</div>`).join("")
-      : `<div class="subtle">Aucune fléchette pour ce tour.</div>`;
+    const rawRemaining = currentState.score - dartTotal;
+    const isBust = match.settings.bust && rawRemaining < 0;
+    const displayScore = isBust ? currentState.score : rawRemaining;
+    const scoreClass = isBust ? "score-bust" : rawRemaining === 0 ? "score-checkout" : "";
+    const checkoutHint = !isBust && rawRemaining > 1 && rawRemaining <= 170
+      ? getCheckoutSuggestion(rawRemaining, match.settings.doubleOut)
+      : null;
 
     return `
       ${progressCard}
@@ -1483,20 +1494,29 @@ function renderActiveMatch() {
         </table>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <h3 class="card-title">Tour de ${escapeHtml(getPlayerName(currentPlayerId))}</h3>
-            <div class="subtle">Reste à faire : ${currentState.score}</div>
+      <div class="card match-dartpad-card">
+        <div class="match-player-bar">
+          <span class="match-player-name">${escapeHtml(getPlayerName(currentPlayerId))}</span>
+          <div class="match-player-badges">
+            ${pauseBadge}
+            ${match.settings.doubleIn && !currentState.started ? `<span class="badge">Double-in</span>` : ""}
           </div>
-          ${pauseBadge}
-          ${match.settings.doubleIn && !currentState.started ? `<span class="badge">Double-in requis</span>` : ""}
         </div>
-        ${renderCheckoutBanner(currentState.score, match.settings.doubleOut)}
+        <div class="match-score-display ${scoreClass}">
+          <div class="match-score-big">${displayScore}</div>
+          ${isBust ? `<div class="match-score-hint bust-hint">BUST</div>` : ""}
+          ${checkoutHint ? `<div class="match-score-hint">💡 ${escapeHtml(checkoutHint)}</div>` : ""}
+        </div>
+        <div class="dart-slots">
+          ${[0, 1, 2].map((i) => {
+            const dart = ui.dartDraft[i];
+            return `<div class="dart-slot ${dart ? "filled" : "empty"}">${dart ? escapeHtml(formatDart(dart)) : ""}</div>`;
+          }).join("")}
+        </div>
         <div class="dartpad">
-          <div class="inline-actions">
-            <button class="btn small ghost ${ui.dartMultiplier === 2 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="2" ${disabledAttr}>Double</button>
-            <button class="btn small ghost ${ui.dartMultiplier === 3 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="3" ${disabledAttr}>Triple</button>
+          <div class="multiplier-row">
+            <button class="btn small ghost ${ui.dartMultiplier === 2 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="2" ${disabledAttr}>× 2 Double</button>
+            <button class="btn small ghost ${ui.dartMultiplier === 3 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="3" ${disabledAttr}>× 3 Triple</button>
           </div>
           <div class="dart-grid">
             ${getDartValues()
@@ -1507,19 +1527,10 @@ function renderActiveMatch() {
               .join("")}
           </div>
         </div>
-        <div class="dart-summary">
-          <div class="pill-list">${dartLabels}</div>
-          <div class="split" style="margin-top:10px;">
-            <div>
-              <div class="stats-number">${dartTotal}</div>
-              <div class="stats-label">Total du tour</div>
-            </div>
-          </div>
-          <div class="inline-actions" style="margin-top:12px;">
-            <button class="btn ghost" data-action="dart-undo" ${disabledAttr}>Annuler fléchette</button>
-            <button class="btn ghost" data-action="dart-clear" ${disabledAttr}>Vider le tour</button>
-            <button class="btn" data-action="submit-darts" ${disabledAttr}>Valider le tour</button>
-          </div>
+        <div class="dart-actions">
+          <button class="btn ghost" data-action="dart-undo" ${disabledAttr}>Annuler</button>
+          <button class="btn ghost" data-action="dart-clear" ${disabledAttr}>Vider</button>
+          <button class="btn" data-action="submit-darts" ${disabledAttr}>Valider</button>
         </div>
       </div>
 
@@ -1552,7 +1563,14 @@ function renderActiveMatch() {
           <td>${escapeHtml(player?.name || "Joueur supprimé")}</td>
           ${match.teamMode ? `<td>${escapeHtml(teamName || "—")}</td>` : ""}
           ${cricketNumbers
-            .map((num) => `<td>${data.marks[num.key]}</td>`)
+            .map((num) => {
+              const m = data.marks[num.key] || 0;
+              const sym = m === 0 ? '<span class="cmark cmark-0">·</span>'
+                        : m === 1 ? '<span class="cmark cmark-1">/</span>'
+                        : m === 2 ? '<span class="cmark cmark-2">✕</span>'
+                        : '<span class="cmark cmark-3">⊗</span>';
+              return `<td>${sym}</td>`;
+            })
             .join("")}
           <td><strong>${data.points}</strong></td>
         </tr>
@@ -1597,18 +1615,21 @@ function renderActiveMatch() {
       </table>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <h3 class="card-title">Tour de ${escapeHtml(getPlayerName(currentPlayerId))}</h3>
-          <div class="subtle">Ajoute les fléchettes du tour (simple, double, triple).</div>
-        </div>
-        ${pauseBadge}
+    <div class="card match-dartpad-card">
+      <div class="match-player-bar">
+        <span class="match-player-name">${escapeHtml(getPlayerName(currentPlayerId))}</span>
+        <div class="match-player-badges">${pauseBadge}</div>
+      </div>
+      <div class="dart-slots">
+        ${[0, 1, 2].map((i) => {
+          const dart = ui.dartDraft[i];
+          return `<div class="dart-slot ${dart ? "filled" : "empty"}">${dart ? escapeHtml(formatDart(dart)) : ""}</div>`;
+        }).join("")}
       </div>
       <div class="dartpad">
-        <div class="inline-actions">
-          <button class="btn small ghost ${ui.dartMultiplier === 2 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="2" ${disabledAttr}>Double</button>
-          <button class="btn small ghost ${ui.dartMultiplier === 3 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="3" ${disabledAttr}>Triple</button>
+        <div class="multiplier-row">
+          <button class="btn small ghost ${ui.dartMultiplier === 2 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="2" ${disabledAttr}>× 2 Double</button>
+          <button class="btn small ghost ${ui.dartMultiplier === 3 ? "active" : ""}" data-action="dart-multiplier" data-multiplier="3" ${disabledAttr}>× 3 Triple</button>
         </div>
         <div class="dart-grid">
           ${getCricketDartValues()
@@ -1619,19 +1640,10 @@ function renderActiveMatch() {
             .join("")}
         </div>
       </div>
-      <div class="dart-summary">
-        <div class="pill-list">${dartLabels}</div>
-        <div class="split" style="margin-top:10px;">
-          <div>
-            <div class="stats-number">${dartTotal}</div>
-            <div class="stats-label">Total du tour</div>
-          </div>
-        </div>
-        <div class="inline-actions" style="margin-top:12px;">
-          <button class="btn ghost" data-action="dart-undo" ${disabledAttr}>Annuler fléchette</button>
-          <button class="btn ghost" data-action="dart-clear" ${disabledAttr}>Vider le tour</button>
-          <button class="btn" data-action="submit-cricket-darts" ${disabledAttr}>Valider le tour</button>
-        </div>
+      <div class="dart-actions">
+        <button class="btn ghost" data-action="dart-undo" ${disabledAttr}>Annuler</button>
+        <button class="btn ghost" data-action="dart-clear" ${disabledAttr}>Vider</button>
+        <button class="btn" data-action="submit-cricket-darts" ${disabledAttr}>Valider</button>
       </div>
     </div>
 
@@ -2679,6 +2691,9 @@ function submitX01TurnFromDarts() {
   match.currentTurnIndex = (match.currentTurnIndex + 1) % match.players.length;
   saveState();
   render();
+  const nextId = match.players[match.currentTurnIndex];
+  const nextScore = match.scoreboard[nextId]?.score;
+  showFlashOverlay("🎯", getPlayerName(nextId), nextScore != null ? `Reste : ${nextScore}` : "");
 }
 
 function submitCricketTurnFromDarts() {
@@ -2752,6 +2767,9 @@ function submitCricketTurnFromDarts() {
   match.currentTurnIndex = (match.currentTurnIndex + 1) % match.players.length;
   saveState();
   render();
+  const nextId = match.players[match.currentTurnIndex];
+  const nextPoints = match.cricket.scores[nextId]?.points ?? 0;
+  showFlashOverlay("🎯", getPlayerName(nextId), `Points : ${nextPoints}`);
 }
 
 function undoLastTurn() {
@@ -3528,7 +3546,7 @@ function handleLegWin(match, winnerPlayerId) {
   resetLeg(match, winnerPlayerId);
   saveState();
   render();
-  showToast("Nouveau leg");
+  showFlashOverlay("🏆", `${getPlayerName(winnerPlayerId)} gagne le leg !`, "Nouveau leg en cours…", 2000);
 }
 
 function resetLeg(match, winnerPlayerId) {
@@ -4551,6 +4569,17 @@ function showToast(message) {
   toast.classList.add("show");
   clearTimeout(showToast._timeout);
   showToast._timeout = setTimeout(() => toast.classList.remove("show"), 2200);
+}
+
+function showFlashOverlay(icon, title, subtitle = "", duration = 1400) {
+  const overlay = document.getElementById("flash-overlay");
+  if (!overlay) return;
+  document.getElementById("flash-icon").textContent = icon;
+  document.getElementById("flash-title").textContent = title;
+  document.getElementById("flash-subtitle").textContent = subtitle;
+  overlay.classList.remove("hidden");
+  clearTimeout(showFlashOverlay._timer);
+  showFlashOverlay._timer = setTimeout(() => overlay.classList.add("hidden"), duration);
 }
 
 function formatPercent(value) {
