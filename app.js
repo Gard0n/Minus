@@ -111,11 +111,6 @@ function getCheckoutSuggestion(score, doubleOut) {
   return CHECKOUT_TABLE[score] || null;
 }
 
-function renderCheckoutBanner(score, doubleOut) {
-  const suggestion = getCheckoutSuggestion(score, doubleOut !== false);
-  if (!suggestion) return "";
-  return `<div class="checkout-banner">💡 Checkout : <strong>${escapeHtml(suggestion)}</strong></div>`;
-}
 
 let store = loadStore();
 let state = store.groups[store.activeGroupId];
@@ -1264,7 +1259,6 @@ function renderMatchSummaryCard() {
   const match = state.matches.find((item) => item.id === state.lastSummaryId);
   if (!match) return "";
   const winnerLabel = getMatchWinnerLabel(match) || "—";
-  const scoreLabel = match.type === "cricket" ? "Points" : "Score final";
   return `
     <div class="card" style="margin-bottom:18px;">
       <div class="card-header">
@@ -1579,11 +1573,6 @@ function renderActiveMatch() {
     .join("");
 
   const lastTurns = match.turns.slice(-5).reverse();
-  const dartTotal = ui.dartDraft.reduce((sum, dart) => sum + dart.score, 0);
-  const dartLabels = ui.dartDraft.length
-    ? ui.dartDraft.map((dart) => `<div class="pill">${escapeHtml(formatDart(dart))}</div>`).join("")
-    : `<div class="subtle">Aucune fléchette pour ce tour.</div>`;
-
   return `
     ${progressCard}
     ${lastLegNotice}
@@ -2692,8 +2681,14 @@ function submitX01TurnFromDarts() {
   saveState();
   render();
   const nextId = match.players[match.currentTurnIndex];
-  const nextScore = match.scoreboard[nextId]?.score;
-  showFlashOverlay("🎯", getPlayerName(nextId), nextScore != null ? `Reste : ${nextScore}` : "");
+  const nextPlayerScore = match.scoreboard[nextId]?.score;
+  const nextCheckout = nextPlayerScore != null && nextPlayerScore <= 170
+    ? getCheckoutSuggestion(nextPlayerScore, match.settings.doubleOut)
+    : null;
+  const nextSubtitle = nextPlayerScore != null
+    ? (nextCheckout ? `Reste : ${nextPlayerScore} · 💡 ${nextCheckout}` : `Reste : ${nextPlayerScore}`)
+    : "";
+  showFlashOverlay("🎯", getPlayerName(nextId), nextSubtitle);
 }
 
 function submitCricketTurnFromDarts() {
@@ -4571,7 +4566,7 @@ function showToast(message) {
   showToast._timeout = setTimeout(() => toast.classList.remove("show"), 2200);
 }
 
-function showFlashOverlay(icon, title, subtitle = "", duration = 1400) {
+function showFlashOverlay(icon, title, subtitle = "", duration = 900) {
   const overlay = document.getElementById("flash-overlay");
   if (!overlay) return;
   document.getElementById("flash-icon").textContent = icon;
