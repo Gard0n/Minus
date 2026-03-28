@@ -116,6 +116,7 @@ let store = loadStore();
 let state = store.groups[store.activeGroupId];
 let currentTheme = loadTheme();
 let supabase = null;
+let realtimeChannel = null;
 const cloud = {
   session: null,
   groups: [],
@@ -871,6 +872,7 @@ function handleChange(event) {
   if (target.dataset.change === "cloud-group-select") {
     state.cloudGroupId = target.value || null;
     saveState();
+    subscribeRealtime();
     render();
     return;
   }
@@ -2689,6 +2691,7 @@ function submitX01TurnFromDarts() {
     ? (nextCheckout ? `Reste : ${nextPlayerScore} · 💡 ${nextCheckout}` : `Reste : ${nextPlayerScore}`)
     : "";
   showFlashOverlay("🎯", getPlayerName(nextId), nextSubtitle);
+  cloudPushAuto();
 }
 
 function submitCricketTurnFromDarts() {
@@ -2765,6 +2768,7 @@ function submitCricketTurnFromDarts() {
   const nextId = match.players[match.currentTurnIndex];
   const nextPoints = match.cricket.scores[nextId]?.points ?? 0;
   showFlashOverlay("🎯", getPlayerName(nextId), `Points : ${nextPoints}`);
+  cloudPushAuto();
 }
 
 function undoLastTurn() {
@@ -2824,6 +2828,7 @@ function finalizeMatch(match, winnerIds) {
   saveState();
   render();
   showToast("Partie terminée");
+  cloudPushAuto();
 }
 
 function getFinalScores(match) {
@@ -3542,6 +3547,7 @@ function handleLegWin(match, winnerPlayerId) {
   saveState();
   render();
   showFlashOverlay("🏆", `${getPlayerName(winnerPlayerId)} gagne le leg !`, "Nouveau leg en cours…", 2000);
+  cloudPushAuto();
 }
 
 function resetLeg(match, winnerPlayerId) {
@@ -4198,8 +4204,9 @@ async function initSupabase() {
     cloud.session = session;
     cloud.error = null;
     if (session) {
-      loadCloudGroups();
+      loadCloudGroups().then(() => subscribeRealtime());
     } else {
+      unsubscribeRealtime();
       cloud.groups = [];
       render();
     }
@@ -4231,11 +4238,52 @@ async function cloudSignIn(email) {
 async function cloudSignOut() {
   if (!supabase) return;
   await supabase.auth.signOut();
+  unsubscribeRealtime();
   cloud.session = null;
   cloud.groups = [];
   cloud.error = null;
   render();
   showToast("Déconnecté");
+}
+
+function subscribeRealtime() {
+  if (!supabase || !cloud.session || !state.cloudGroupId) return;
+  unsubscribeRealtime();
+  realtimeChannel = supabase
+    .channel(`group-${state.cloudGroupId}`)
+    .on("postgres_changes", {
+      event: "UPDATE",
+      schema: "public",
+      table: "groups",
+      filter: `id=eq.${state.cloudGroupId}`,
+    }, (payload) => {
+      if (!payload.new?.data) return;
+      const incoming = payload.new.data;
+      // Ne pas écraser si on est le device qui score (on a plus de tours en local)
+      const incomingTurns = incoming.activeMatch?.turns?.length ?? -1;
+      const localTurns = state.activeMatch?.turns?.length ?? -1;
+      if (state.activeMatch && incomingTurns < localTurns) return;
+      const cloudGroupId = state.cloudGroupId;
+      state = normalizeGroup(incoming);
+      state.cloudGroupId = cloudGroupId;
+      saveState();
+      render();
+    })
+    .subscribe();
+}
+
+function unsubscribeRealtime() {
+  if (realtimeChannel) {
+    supabase.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
+}
+
+async function cloudPushAuto() {
+  if (!supabase || !cloud.session || !state.cloudGroupId) return;
+  const groupName = store.groupList.find((g) => g.id === store.activeGroupId)?.name || "Groupe";
+  const payload = getCloudPayload(state);
+  await supabase.from("groups").update({ name: groupName, data: payload }).eq("id", state.cloudGroupId);
 }
 
 async function loadCloudGroups() {

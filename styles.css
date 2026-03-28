@@ -471,6 +471,7 @@ label {
   border-radius: 12px;
   padding: 10px 0;
   background: var(--card);
+  color: var(--text);
   font-weight: 600;
   cursor: pointer;
   transition: border-color 0.15s ease, transform 0.15s ease;
@@ -790,9 +791,15 @@ label {
     font-size: 13px;
   }
 
+  .dart-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+
   .dart-btn {
-    padding: 14px 0;
-    font-size: 16px;
+    padding: 18px 0;
+    font-size: 17px;
+    border-radius: 14px;
   }
 
   .score-value {
