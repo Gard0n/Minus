@@ -778,17 +778,70 @@ label {
 }
 
 @media (max-width: 720px) {
-  .app-header {
-    flex-direction: column;
-    align-items: flex-start;
+  /* Layout général */
+  #app {
+    padding: 16px 14px 80px;
   }
 
-  .header-actions {
-    width: 100%;
+  .app-header {
+    margin-bottom: 12px;
+  }
+
+  .brand h1 {
+    font-size: 22px;
+  }
+
+  .brand p {
+    display: none;
+  }
+
+  .app-nav {
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+
+  .nav-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  /* Inputs : empêche le zoom iOS (min 16px) */
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  select {
+    font-size: 16px;
   }
 
   .table {
     font-size: 13px;
+  }
+
+  /* Match : boutons secondaires cachés sur mobile */
+  .match-action-secondary {
+    display: none;
+  }
+
+  /* Match : table des scores compacte */
+  .match-scores-table th,
+  .match-scores-table td {
+    padding: 7px 6px;
+  }
+
+  /* Dartpad */
+  .match-score-big {
+    font-size: 108px;
+    letter-spacing: -4px;
+  }
+
+  .match-player-name {
+    font-size: 22px;
+  }
+
+  .dart-slot {
+    height: 60px;
+    font-size: 20px;
+    border-radius: 12px;
   }
 
   .dart-grid {
@@ -802,6 +855,12 @@ label {
     border-radius: 14px;
   }
 
+  .multiplier-row .btn {
+    padding: 14px 0;
+    font-size: 15px;
+  }
+
+  /* Board */
   .score-value {
     font-size: 36px;
   }

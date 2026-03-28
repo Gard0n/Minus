@@ -125,7 +125,7 @@ const cloud = {
 };
 
 const ui = {
-  view: "home",
+  view: "match",
   quickDraft: null,
   editingPlayerId: null,
   rankingRange: "all",
@@ -317,7 +317,7 @@ async function handleClick(event) {
 
   if (action === "edit-player") {
     ui.editingPlayerId = target.dataset.id;
-    ui.view = "players";
+    ui.view = "settings";
     render();
     return;
   }
@@ -457,6 +457,19 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "inline-add-player") {
+    const input = document.getElementById("inline-player-name");
+    const name = input?.value?.trim();
+    if (!name) { showToast("Saisis un nom"); return; }
+    const newPlayer = { id: uid(), name, team: "", createdAt: new Date().toISOString() };
+    state.players.push(newPlayer);
+    ui.matchDraft.selectedPlayers = [...(ui.matchDraft.selectedPlayers || []), newPlayer.id];
+    saveState();
+    render();
+    showToast(`${name} ajouté`);
+    return;
+  }
+
   if (action === "reset-data") {
     const groupName = store.groupList.find((group) => group.id === store.activeGroupId)?.name || "groupe actif";
     if (confirm(`Réinitialiser les données de "${groupName}" ?`)) {
@@ -512,7 +525,7 @@ async function handleSubmit(event) {
 
   if (formType === "match-setup") {
     const mode = form.matchMode.value;
-    const scoringMode = form.scoringMode.value;
+    const scoringMode = "live";
     const matchType = form.matchType?.value || "solo";
     const teamMode = matchType === "teams";
     const randomStart = form.randomStart.checked;
@@ -890,9 +903,6 @@ function handleChange(event) {
 
 function render() {
   renderNav();
-  renderGroupSwitcher();
-  renderHome();
-  renderPlayers();
   renderMatch();
   renderBoard();
   renderStats();
@@ -910,204 +920,10 @@ function renderNav() {
   });
 }
 
-function renderGroupSwitcher() {
-  const container = document.getElementById("group-switcher");
-  if (!container) return;
-  const options = store.groupList
-    .map(
-      (group) =>
-        `<option value="${group.id}" ${group.id === store.activeGroupId ? "selected" : ""}>${escapeHtml(group.name)}</option>`
-    )
-    .join("");
-  container.innerHTML = `
-    <select class="group-select" data-change="group-select">
-      ${options}
-    </select>
-  `;
-}
-
 function showView(view) {
   document.querySelectorAll(".view").forEach((section) => {
     section.classList.toggle("active", section.id === `view-${view}`);
   });
-}
-
-function renderHome() {
-  const view = document.getElementById("view-home");
-  const matchCount = state.matches.length;
-  const playerCount = state.players.length;
-  const activeMatch = state.activeMatch;
-  const recentMatches = [...state.matches]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 5);
-
-  const ranking = getPlayerRanking(ui.rankingRange).slice(0, 5);
-  const rangeLabel = getRangeLabel(ui.rankingRange);
-  const quickCard = renderQuickStartCard();
-
-  view.innerHTML = `
-    <div class="grid two">
-      <div class="card">
-        <div class="card-header">
-          <h3 class="card-title">Raccourcis</h3>
-          ${activeMatch ? `<span class="badge">Partie en cours</span>` : ""}
-        </div>
-        <p class="subtle">Lance une partie ou ajoute des joueurs en deux clics.</p>
-        <div class="inline-actions">
-          <button class="btn" data-action="nav" data-view="match">Lancer une partie</button>
-          <button class="btn ghost" data-action="nav" data-view="players">Ajouter des joueurs</button>
-        </div>
-        ${activeMatch ? `<div class="notice" style="margin-top:12px;">Une partie est en cours, tu peux la reprendre.</div>` : ""}
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <h3 class="card-title">Vue d'ensemble</h3>
-        </div>
-        <div class="grid three">
-          <div>
-            <div class="stats-number">${playerCount}</div>
-            <div class="stats-label">Joueurs</div>
-          </div>
-          <div>
-            <div class="stats-number">${matchCount}</div>
-            <div class="stats-label">Parties</div>
-          </div>
-          <div>
-            <div class="stats-number">${activeMatch ? "1" : "0"}</div>
-            <div class="stats-label">En cours</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    ${quickCard}
-
-    <div class="grid two" style="margin-top:18px;">
-      <div class="card">
-        <div class="card-header">
-          <h3 class="card-title">Classement express</h3>
-          <select data-change="ranking-range">
-            ${renderRangeOptions(ui.rankingRange)}
-          </select>
-        </div>
-        ${ranking.length ? renderRankingTable(ranking, { compact: true }) : `<p class="subtle">Aucune donnée pour l'instant.</p>`}
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <h3 class="card-title">Dernières parties</h3>
-          <span class="subtle">${rangeLabel}</span>
-        </div>
-        ${recentMatches.length ? renderRecentMatches(recentMatches) : `<p class="subtle">Aucune partie enregistrée.</p>`}
-      </div>
-    </div>
-  `;
-}
-
-function renderPlayers() {
-  const view = document.getElementById("view-players");
-  const editingPlayer = ui.editingPlayerId ? getPlayer(ui.editingPlayerId) : null;
-  const statsMap = computePlayerStats(state.matches);
-
-  const rows = state.players
-    .map((player) => {
-      const stats = statsMap[player.id] || {};
-      return `
-        <tr>
-          <td>
-            <strong>${escapeHtml(player.name)}</strong>
-            ${player.team ? `<div class="small-muted">${escapeHtml(player.team)}</div>` : ""}
-          </td>
-          <td>${stats.matches || 0}</td>
-          <td>${stats.wins || 0}</td>
-          <td>${formatPercent(stats.winrate)}</td>
-          <td>${formatNumber(stats.avgTurn, 1)}</td>
-          <td>${stats.count180 || 0}</td>
-          <td>${stats.bestCheckout || "—"}</td>
-          <td>
-            <div class="inline-actions">
-              <button class="btn small ghost" data-action="view-player" data-id="${player.id}">Profil</button>
-              <button class="btn small ghost" data-action="edit-player" data-id="${player.id}">Modifier</button>
-              <button class="btn small danger" data-action="delete-player" data-id="${player.id}">Supprimer</button>
-            </div>
-          </td>
-        </tr>
-      `;
-    })
-    .join("");
-
-  view.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">${editingPlayer ? "Modifier un joueur" : "Ajouter un joueur"}</h3>
-      </div>
-      <form data-form="player">
-        <div class="form-row">
-          <div>
-            <label>Nom</label>
-            <input type="text" name="playerName" value="${editingPlayer ? escapeHtml(editingPlayer.name) : ""}" required />
-          </div>
-          <div>
-            <label>Équipe (optionnel)</label>
-            <input type="text" name="playerTeam" value="${editingPlayer ? escapeHtml(editingPlayer.team || "") : ""}" />
-          </div>
-        </div>
-        <div class="inline-actions" style="margin-top:12px;">
-          <button class="btn">${editingPlayer ? "Enregistrer" : "Ajouter"}</button>
-          ${editingPlayer ? `<button type="button" class="btn ghost" data-action="clear-player-form">Annuler</button>` : ""}
-        </div>
-      </form>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Liste des joueurs</h3>
-        <span class="subtle">${state.players.length} joueur(s)</span>
-      </div>
-      ${state.players.length ? `
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Joueur</th>
-              <th>Matchs</th>
-              <th>Victoires</th>
-              <th>Winrate</th>
-              <th>Moy./tour</th>
-              <th>180</th>
-              <th>Checkout</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      ` : `<p class="subtle">Ajoute ton premier joueur pour démarrer.</p>`}
-    </div>
-  `;
-}
-
-function renderQuickStartCard() {
-  const hasPlayers = state.players.length >= 2;
-  const hasFour = state.players.length >= 4;
-  const lastSetup = getLastSetup();
-  const lastLabel = lastSetup
-    ? `${lastSetup.mode.toUpperCase()} · ${formatPlayersList(lastSetup.players)}`
-    : "Aucune partie récente";
-
-  return `
-    <div class="card" style="margin-top:18px;">
-      <div class="card-header">
-        <h3 class="card-title">Lancer en 1 clic</h3>
-        <span class="subtle">${escapeHtml(lastLabel)}</span>
-      </div>
-      <div class="inline-actions">
-        <button class="btn" data-action="quick-start" data-preset="last" ${lastSetup ? "" : "disabled"}>Rejouer</button>
-        <button class="btn ghost" data-action="quick-start" data-preset="duel-501" ${hasPlayers ? "" : "disabled"}>Duel 501</button>
-        <button class="btn ghost" data-action="quick-start" data-preset="duel-301" ${hasPlayers ? "" : "disabled"}>Duel 301</button>
-        <button class="btn ghost" data-action="quick-start" data-preset="cricket" ${hasPlayers ? "" : "disabled"}>Cricket</button>
-        <button class="btn ghost" data-action="quick-start" data-preset="teams-2v2" ${hasFour ? "" : "disabled"}>Équipes 2v2</button>
-      </div>
-      ${hasPlayers ? `<p class="small-muted" style="margin-top:10px;">Les presets utilisent les derniers joueurs ou les 2/4 premiers de la liste.</p>` : `<p class="subtle" style="margin-top:10px;">Ajoute au moins 2 joueurs pour démarrer.</p>`}
-    </div>
-  `;
 }
 
 function renderMatch() {
@@ -1128,16 +944,17 @@ function renderMatch() {
   const defaultSets = state.settings.setsToWin || 1;
 
   const summaryCard = renderMatchSummaryCard();
+  const lastSetup = getLastSetup();
 
   view.innerHTML = `
     ${summaryCard}
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Nouvelle partie</h3>
+        ${lastSetup ? `<button type="button" class="btn small ghost" data-action="quick-start" data-preset="last">↩ Rejouer</button>` : ""}
       </div>
-      ${hasPlayers ? "" : `<div class="notice">Ajoute au moins 2 joueurs pour démarrer une partie.</div>`}
-      <form data-form="match-setup" style="margin-top:12px;">
-        <div class="form-row">
+      <form data-form="match-setup">
+        <div class="form-row" style="margin-top:4px;">
           <div>
             <label>Mode</label>
             <select name="matchMode">
@@ -1145,75 +962,57 @@ function renderMatch() {
             </select>
           </div>
           <div>
-            <label>Type de match</label>
+            <label>Type</label>
             <select name="matchType" data-change="match-type">
-              <option value="solo" ${!teamMode ? "selected" : ""}>Tous ensemble</option>
-              <option value="teams" ${teamMode ? "selected" : ""}>Par équipes</option>
+              <option value="solo" ${!teamMode ? "selected" : ""}>Individuel</option>
+              <option value="teams" ${teamMode ? "selected" : ""}>Équipes</option>
             </select>
-          </div>
-          <div>
-            <label>Saisie</label>
-            <select name="scoringMode">
-              ${renderScoringOptions(state.settings.scoringMode)}
-            </select>
-          </div>
-          <div>
-            <label>Départ aléatoire</label>
-            <div class="player-pill">
-              <input type="checkbox" name="randomStart" />
-              <span>Oui</span>
-            </div>
           </div>
         </div>
+
         ${teamMode ? `
           <div class="form-row" style="margin-top:12px;">
             <div>
-              <label>Nom équipe A</label>
+              <label>Équipe A</label>
               <input type="text" name="teamNameA" value="${escapeHtml(teamNameA)}" data-change="team-name" data-index="0" />
             </div>
             <div>
-              <label>Nom équipe B</label>
+              <label>Équipe B</label>
               <input type="text" name="teamNameB" value="${escapeHtml(teamNameB)}" data-change="team-name" data-index="1" />
             </div>
           </div>
         ` : ""}
-        <div style="margin-top:12px;">
-          <label>Templates</label>
-          <div class="inline-actions">
-            <button type="button" class="btn small ghost" data-action="apply-template" data-template="duel">Duel 2 joueurs</button>
-            <button type="button" class="btn small ghost" data-action="apply-template" data-template="four">4 joueurs</button>
-            <button type="button" class="btn small ghost" data-action="apply-template" data-template="teams2v2">Équipes 2v2</button>
-            <button type="button" class="btn small ghost" data-action="apply-template" data-template="all">Tout le monde</button>
-          </div>
-        </div>
-        <div style="margin-top:12px;">
+
+        <div style="margin-top:14px;">
           <label>Joueurs</label>
           <div class="pill-list">
-            ${state.players
-              .map((player) => {
-                const assigned = ui.matchDraft.teamAssignments[player.id] || "A";
-                const isSelected = selectedPlayers.includes(player.id);
-                return `
-                  <div class="player-row">
-                    <label class="player-pill">
-                      <input type="checkbox" name="matchPlayers" value="${player.id}" ${isSelected ? "checked" : ""} />
-                      <span>${escapeHtml(player.name)}</span>
-                      ${player.team ? `<span class="small-muted">${escapeHtml(player.team)}</span>` : ""}
-                    </label>
-                    ${teamMode ? `
-                      <select class="team-select" name="team-${player.id}" data-change="team-assign" data-player-id="${player.id}">
-                        <option value="A" ${assigned === "A" ? "selected" : ""}>${escapeHtml(teamNameA)}</option>
-                        <option value="B" ${assigned === "B" ? "selected" : ""}>${escapeHtml(teamNameB)}</option>
-                      </select>
-                    ` : ""}
-                  </div>
-                `;
-              })
-              .join("")}
+            ${state.players.map((player) => {
+              const assigned = ui.matchDraft.teamAssignments[player.id] || "A";
+              const isSelected = selectedPlayers.includes(player.id);
+              return `
+                <div class="player-row">
+                  <label class="player-pill">
+                    <input type="checkbox" name="matchPlayers" value="${player.id}" ${isSelected ? "checked" : ""} />
+                    <span>${escapeHtml(player.name)}</span>
+                  </label>
+                  ${teamMode ? `
+                    <select class="team-select" name="team-${player.id}" data-change="team-assign" data-player-id="${player.id}">
+                      <option value="A" ${assigned === "A" ? "selected" : ""}>${escapeHtml(teamNameA)}</option>
+                      <option value="B" ${assigned === "B" ? "selected" : ""}>${escapeHtml(teamNameB)}</option>
+                    </select>
+                  ` : ""}
+                </div>
+              `;
+            }).join("")}
+          </div>
+          <div class="form-row" style="margin-top:8px;">
+            <input type="text" id="inline-player-name" placeholder="Nouveau joueur…" />
+            <button type="button" class="btn ghost" data-action="inline-add-player">+ Ajouter</button>
           </div>
         </div>
-        <div style="margin-top:12px;">
-          <label>Règles 301/501</label>
+
+        <div style="margin-top:14px;">
+          <label>Règles</label>
           <div class="pill-list">
             <label class="player-pill">
               <input type="checkbox" name="doubleIn" ${state.settings.doubleIn ? "checked" : ""} />
@@ -1229,26 +1028,36 @@ function renderMatch() {
             </label>
           </div>
         </div>
-        <div class="form-row" style="margin-top:12px;">
-          <div>
-            <label>Événement (tag)</label>
-            <input type="text" name="matchTag" list="tag-list" placeholder="Hebdo, Mensuel" />
-            <datalist id="tag-list">
-              ${getAvailableTags().map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join("")}
-            </datalist>
+
+        <details style="margin-top:14px;">
+          <summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--muted);">Options avancées</summary>
+          <div class="form-row" style="margin-top:10px;">
+            <div>
+              <label>Legs pour gagner</label>
+              <input type="number" name="legsToWin" min="1" value="${defaultLegs}" />
+            </div>
+            <div>
+              <label>Sets pour gagner</label>
+              <input type="number" name="setsToWin" min="1" value="${defaultSets}" />
+            </div>
+            <div>
+              <label>Événement</label>
+              <input type="text" name="matchTag" list="tag-list" placeholder="Hebdo…" />
+              <datalist id="tag-list">
+                ${getAvailableTags().map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join("")}
+              </datalist>
+            </div>
           </div>
-          <div>
-            <label>Legs pour gagner</label>
-            <input type="number" name="legsToWin" min="1" value="${defaultLegs}" />
+          <div style="margin-top:10px;">
+            <label class="player-pill" style="display:inline-flex;">
+              <input type="checkbox" name="randomStart" />
+              <span>Départ aléatoire</span>
+            </label>
           </div>
-          <div>
-            <label>Sets pour gagner</label>
-            <input type="number" name="setsToWin" min="1" value="${defaultSets}" />
-          </div>
-        </div>
-        <div class="inline-actions" style="margin-top:14px;">
-          <button class="btn" ${hasPlayers ? "" : "disabled"}>Démarrer</button>
-          <span class="small-muted">En saisie rapide, tu notes juste le gagnant.</span>
+        </details>
+
+        <div class="inline-actions" style="margin-top:16px;">
+          <button class="btn" style="flex:1;" ${hasPlayers ? "" : "disabled"}>🎯 Démarrer</button>
         </div>
       </form>
     </div>
@@ -1469,15 +1278,15 @@ function renderActiveMatch() {
             <div class="subtle">${playerNames}</div>
           </div>
           <div class="inline-actions">
-            <button class="btn ghost" data-action="nav" data-view="board">Tableau</button>
-            <button class="btn ghost" data-action="toggle-pause">${pauseLabel}</button>
-            <button class="btn ghost" data-action="undo-turn">Annuler le dernier tour</button>
-            <button class="btn danger" data-action="cancel-match">Annuler la partie</button>
+            <button class="btn ghost match-action-secondary" data-action="nav" data-view="board">Tableau</button>
+            <button class="btn ghost match-action-secondary" data-action="toggle-pause">${pauseLabel}</button>
+            <button class="btn small ghost" data-action="undo-turn">↩ Annuler</button>
+            <button class="btn small danger" data-action="cancel-match">Abandonner</button>
           </div>
         </div>
-        <div class="turn-banner">Tour en cours : ${escapeHtml(getPlayerName(currentPlayerId))}</div>
+        <div class="turn-banner">Tour : <strong>${escapeHtml(getPlayerName(currentPlayerId))}</strong></div>
         ${rulesMenu}
-        <table class="table">
+        <table class="table match-scores-table">
           <thead>
             <tr>
               <th>Joueur</th>
@@ -1585,15 +1394,15 @@ function renderActiveMatch() {
           <div class="subtle">${playerNames}</div>
         </div>
         <div class="inline-actions">
-          <button class="btn ghost" data-action="nav" data-view="board">Tableau</button>
-          <button class="btn ghost" data-action="toggle-pause">${pauseLabel}</button>
-          <button class="btn ghost" data-action="undo-turn">Annuler le dernier tour</button>
-          <button class="btn danger" data-action="cancel-match">Annuler la partie</button>
+          <button class="btn ghost match-action-secondary" data-action="nav" data-view="board">Tableau</button>
+          <button class="btn ghost match-action-secondary" data-action="toggle-pause">${pauseLabel}</button>
+          <button class="btn small ghost" data-action="undo-turn">↩ Annuler</button>
+          <button class="btn small danger" data-action="cancel-match">Abandonner</button>
         </div>
       </div>
-      <div class="turn-banner">Tour en cours : ${escapeHtml(getPlayerName(currentPlayerId))}</div>
+      <div class="turn-banner">Tour : <strong>${escapeHtml(getPlayerName(currentPlayerId))}</strong></div>
       ${rulesMenu}
-      <table class="table">
+      <table class="table match-scores-table">
         <thead>
           <tr>
             <th>Joueur</th>
@@ -2298,11 +2107,53 @@ function renderCloudSection() {
 
 function renderSettings() {
   const view = document.getElementById("view-settings");
-  const weights = getRankingWeights();
-  const gistToken = store.gist?.token || "";
-  const gistId = store.gist?.gistId || "";
+  const editingPlayer = ui.editingPlayerId ? getPlayer(ui.editingPlayerId) : null;
+  const statsMap = computePlayerStats(state.matches);
+
+  const playerRows = state.players.map((player) => {
+    const stats = statsMap[player.id] || {};
+    return `
+      <tr>
+        <td><strong>${escapeHtml(player.name)}</strong></td>
+        <td>${stats.matches || 0}</td>
+        <td>${stats.wins || 0}</td>
+        <td>
+          <div class="inline-actions">
+            <button class="btn small ghost" data-action="view-player" data-id="${player.id}">Profil</button>
+            <button class="btn small ghost" data-action="edit-player" data-id="${player.id}">Modifier</button>
+            <button class="btn small danger" data-action="delete-player" data-id="${player.id}">✕</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("");
 
   view.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">${editingPlayer ? "Modifier le joueur" : "Joueurs"}</h3>
+        ${!editingPlayer ? `<span class="subtle">${state.players.length} joueur(s)</span>` : ""}
+      </div>
+      <form data-form="player">
+        <div class="form-row">
+          <div>
+            <label>Nom</label>
+            <input type="text" name="playerName" value="${editingPlayer ? escapeHtml(editingPlayer.name) : ""}" placeholder="Prénom ou pseudo" required />
+          </div>
+        </div>
+        <div class="inline-actions" style="margin-top:10px;">
+          <button class="btn">${editingPlayer ? "Enregistrer" : "Ajouter"}</button>
+          ${editingPlayer ? `<button type="button" class="btn ghost" data-action="clear-player-form">Annuler</button>` : ""}
+        </div>
+      </form>
+      ${state.players.length ? `
+        <table class="table" style="margin-top:14px;">
+          <thead><tr><th>Joueur</th><th>Matchs</th><th>Victoires</th><th></th></tr></thead>
+          <tbody>${playerRows}</tbody>
+        </table>
+      ` : `<p class="subtle" style="margin-top:12px;">Aucun joueur. Ajoute-en un pour commencer.</p>`}
+    </div>
+
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Réglages par défaut</h3>
@@ -2359,124 +2210,20 @@ function renderSettings() {
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Classement pondéré</h3>
-      </div>
-      <div class="form-row">
-        <div>
-          <label>Poids victoires</label>
-          <input type="number" step="0.1" min="0" data-setting="rankWins" value="${weights.wins}" />
-        </div>
-        <div>
-          <label>Poids winrate</label>
-          <input type="number" step="0.1" min="0" data-setting="rankWinrate" value="${weights.winrate}" />
-        </div>
-        <div>
-          <label>Poids moyenne / tour</label>
-          <input type="number" step="0.1" min="0" data-setting="rankAvgTurn" value="${weights.avgTurn}" />
-        </div>
-        <div>
-          <label>Poids moyenne / 3 fléchettes</label>
-          <input type="number" step="0.1" min="0" data-setting="rankAvgDart" value="${weights.avgDart}" />
-        </div>
-      </div>
-      <p class="subtle" style="margin-top:8px;">Le classement utilise ces pondérations (normalisées) pour ordonner les joueurs/équipes.</p>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Groupes</h3>
-      </div>
-      ${store.groupList
-        .map((group) => `
-          <div class="history-item">
-            <div>
-              <strong>${escapeHtml(group.name)}</strong>
-              ${group.id === store.activeGroupId ? `<span class="badge">Actif</span>` : ""}
-              ${store.groups[group.id]?.cloudGroupId ? `<span class="badge">Cloud</span>` : ""}
-            </div>
-            <div class="inline-actions">
-              <button class="btn small ghost" data-action="switch-group" data-id="${group.id}">Activer</button>
-              <button class="btn small ghost" data-action="rename-group" data-id="${group.id}">Renommer</button>
-              <button class="btn small danger" data-action="delete-group" data-id="${group.id}">Supprimer</button>
-            </div>
-          </div>
-        `)
-        .join("")}
-      <form data-form="group-create" style="margin-top:12px;">
-        <div class="form-row">
-          <div>
-            <label>Nouveau groupe</label>
-            <input type="text" name="groupName" placeholder="Ex: Bar du jeudi" />
-          </div>
-        </div>
-        <div class="inline-actions" style="margin-top:12px;">
-          <button class="btn">Créer</button>
-        </div>
-      </form>
-    </div>
-
     ${renderCloudSection()}
 
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title">Sauvegarde JSON</h3>
+        <h3 class="card-title">Sauvegarde</h3>
       </div>
       <div class="inline-actions">
-        <button class="btn" data-action="export">Exporter le groupe</button>
-        <button class="btn ghost" data-action="export-all">Exporter tout</button>
+        <button class="btn ghost" data-action="export">Exporter JSON</button>
         <label class="btn ghost" style="cursor:pointer;">
-          Importer
+          Importer JSON
           <input type="file" accept="application/json" data-action="import-file" style="display:none;" />
         </label>
       </div>
-      <p class="subtle" style="margin-top:8px;">Les données restent sur ton navigateur. Pense à exporter de temps en temps.</p>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">CSV</h3>
-      </div>
-      <div class="inline-actions">
-        <button class="btn ghost" data-action="export-players-csv">Exporter classement joueurs</button>
-        <button class="btn ghost" data-action="export-teams-csv">Exporter classement équipes</button>
-        <label class="btn ghost" style="cursor:pointer;">
-          Importer joueurs CSV
-          <input type="file" accept=".csv,text/csv" data-action="import-players" style="display:none;" />
-        </label>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Synchronisation GitHub Gist</h3>
-      </div>
-      <div class="form-row">
-        <div>
-          <label>Token GitHub</label>
-          <input type="text" data-setting="gistToken" value="${escapeHtml(gistToken)}" placeholder="ghp_..." />
-        </div>
-        <div>
-          <label>Gist ID</label>
-          <input type="text" data-setting="gistId" value="${escapeHtml(gistId)}" placeholder="abcdef..." />
-        </div>
-      </div>
-      <div class="inline-actions" style="margin-top:12px;">
-        <button class="btn ghost" data-action="gist-push">Sauvegarder (push)</button>
-        <button class="btn ghost" data-action="gist-pull">Restaurer (pull)</button>
-      </div>
-      <p class="subtle" style="margin-top:8px;">Le token reste stocké localement sur ton navigateur.</p>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Diagnostic rapide</h3>
-      </div>
-      <p class="subtle">Vérifie la cohérence des joueurs, matchs et règles.</p>
-      <div class="inline-actions" style="margin-top:12px;">
-        <button class="btn ghost" data-action="run-diagnostics">Lancer le diagnostic</button>
-      </div>
+      <p class="subtle" style="margin-top:8px;">Données stockées sur cet appareil.</p>
     </div>
 
     <div class="card">
@@ -2484,7 +2231,7 @@ function renderSettings() {
         <h3 class="card-title">Réinitialisation</h3>
       </div>
       <div class="inline-actions">
-        <button class="btn danger" data-action="reset-data">Tout effacer (groupe actif)</button>
+        <button class="btn danger" data-action="reset-data">Tout effacer</button>
       </div>
     </div>
   `;
@@ -3141,23 +2888,6 @@ function applyRankingScore(rows) {
   });
 }
 
-function renderRecentMatches(matches) {
-  return `
-    <div class="grid">
-      ${matches
-        .map((match) => {
-          const winners = getMatchWinnerLabel(match);
-          return `
-            <div class="pill">
-              ${escapeHtml(formatDate(match.date))} · ${match.mode.toUpperCase()} · ${escapeHtml(winners || "Sans vainqueur")}
-            </div>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-}
-
 function renderModeOptions(selected) {
   return [
     { value: "501", label: "501" },
@@ -3234,10 +2964,6 @@ function getAvailableTags() {
     if (match.tag) tags.add(match.tag);
   });
   return Array.from(tags).sort((a, b) => a.localeCompare(b));
-}
-
-function formatPlayersList(playerIds) {
-  return playerIds.map((id) => getPlayerName(id)).join(" · ");
 }
 
 function getMatchSettings(overrides) {
