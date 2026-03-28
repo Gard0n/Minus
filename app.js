@@ -2217,18 +2217,10 @@ function renderCloudSection() {
     return `
       <div class="card">
         <div class="card-header">
-          <h3 class="card-title">Synchronisation Supabase</h3>
+          <h3 class="card-title">Synchronisation cloud</h3>
+          ${cloud.loading ? `<span class="badge">Connexion...</span>` : ""}
         </div>
-        <p class="subtle">Connecte-toi pour sauvegarder et partager un groupe.</p>
-        <form data-form="supabase-login" class="form-row">
-          <div>
-            <label>Email</label>
-            <input type="email" name="email" placeholder="toi@exemple.com" />
-          </div>
-          <div class="inline-actions" style="align-items:flex-end;">
-            <button class="btn">Recevoir un lien</button>
-          </div>
-        </form>
+        <p class="subtle">Connexion automatique en cours, patienter une seconde…</p>
         ${errorBlock}
       </div>
     `;
@@ -2252,10 +2244,9 @@ function renderCloudSection() {
         <h3 class="card-title">Synchronisation Supabase</h3>
       </div>
       <div class="inline-actions" style="align-items:center;">
-        <span class="badge">Connecté : ${escapeHtml(cloud.session?.user?.email || "compte")}</span>
+        <span class="badge">✓ Appareil connecté</span>
         ${loadingBadge}
         <button class="btn ghost" data-action="cloud-refresh">Rafraîchir</button>
-        <button class="btn ghost" data-action="supabase-logout">Se déconnecter</button>
       </div>
       ${errorBlock}
       <div class="form-row" style="margin-top:12px;">
@@ -4194,8 +4185,18 @@ async function initSupabase() {
     cloud.session = null;
   }
 
+  if (!cloud.session) {
+    try {
+      const { data } = await supabase.auth.signInAnonymously();
+      cloud.session = data?.session || null;
+    } catch (err) {
+      console.error("Anonymous sign-in error", err);
+    }
+  }
+
   if (cloud.session) {
     await loadCloudGroups();
+    subscribeRealtime();
   } else {
     render();
   }
