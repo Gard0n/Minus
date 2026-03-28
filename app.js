@@ -493,7 +493,7 @@ async function handleSubmit(event) {
 
   if (formType === "player") {
     const name = form.playerName.value.trim();
-    const team = form.playerTeam.value.trim();
+    const team = form.playerTeam ? form.playerTeam.value.trim() : "";
     if (!name) {
       showToast("Nom obligatoire");
       return;
