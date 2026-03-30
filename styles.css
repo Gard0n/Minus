@@ -865,3 +865,35 @@ label {
     font-size: 36px;
   }
 }
+
+/* ── Onboarding ─────────────────────────────────────────────────────────── */
+.onboarding-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.onboarding-overlay.hidden { display: none; }
+.onboarding-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 32px 28px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.onboarding-icon { font-size: 48px; margin-bottom: 16px; }
+.onboarding-title { font-size: 20px; font-weight: 700; margin: 0 0 12px; }
+.onboarding-text { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0 0 24px; }
+.onboarding-dots { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; }
+.onboarding-dots .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); transition: background 0.2s; }
+.onboarding-dots .dot.active { background: var(--accent); }
+.onboarding-actions { display: flex; gap: 10px; justify-content: center; }
+
+/* ── Misc ────────────────────────────────────────────────────────────────── */
+.btn-link {
+  background: none; border: none; padding: 0;
+  color: var(--accent); cursor: pointer; font: inherit;
+  text-decoration: underline;
+}

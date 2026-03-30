@@ -8,10 +8,7 @@
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#151821" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="assets/icon-192.svg" />
     <link rel="apple-touch-icon" href="assets/icon-192.svg" />
@@ -23,7 +20,7 @@
         <div class="brand">
           <div class="brand-mark">–</div>
           <div>
-            <h1>Minus <span style="font-size:0.5em;font-weight:400;opacity:0.5;">v1.3</span></h1>
+            <h1>Minus <span style="font-size:0.5em;font-weight:400;opacity:0.5;">v1.4</span></h1>
             <p>Classement de parties de fléchettes</p>
           </div>
         </div>
@@ -57,6 +54,7 @@
     </div>
 
     <div id="toast" class="toast"></div>
+
     <div id="flash-overlay" class="flash-overlay hidden" data-action="dismiss-overlay">
       <div class="flash-content">
         <div class="flash-icon" id="flash-icon"></div>
@@ -65,6 +63,9 @@
       </div>
     </div>
 
-    <script type="module" src="app.js"></script>
+    <!-- Onboarding overlay -->
+    <div id="onboarding-overlay" class="onboarding-overlay hidden"></div>
+
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>
